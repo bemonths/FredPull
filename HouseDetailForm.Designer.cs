@@ -51,6 +51,8 @@ namespace FredPull
             _btnOpenMap = new Button();
             _btnChoose = new Button();
             _btnCopyCard = new Button();
+            _btnCopyAddress = new Button();
+            _btnCopyCoords = new Button();
             _btnPhotos = new Button();
             _btnShowFolder = new Button();
             _btnKml = new Button();
@@ -153,6 +155,8 @@ namespace FredPull
             _buttons.Controls.Add(_btnOpenMap);
             _buttons.Controls.Add(_btnChoose);
             _buttons.Controls.Add(_btnCopyCard);
+            _buttons.Controls.Add(_btnCopyAddress);
+            _buttons.Controls.Add(_btnCopyCoords);
             _buttons.Controls.Add(_btnPhotos);
             _buttons.Controls.Add(_btnShowFolder);
             _buttons.Controls.Add(_btnKml);
@@ -208,14 +212,36 @@ namespace FredPull
             _btnCopyCard.UseVisualStyleBackColor = true;
             _btnCopyCard.Click += BtnCopyCard_Click;
             //
+            // _btnCopyAddress
+            //
+            _btnCopyAddress.AutoSize = true;
+            _btnCopyAddress.Location = new Point(403, 5);
+            _btnCopyAddress.Name = "_btnCopyAddress";
+            _btnCopyAddress.Size = new Size(100, 25);
+            _btnCopyAddress.TabIndex = 4;
+            _btnCopyAddress.Text = "Adresi kopyala";
+            _btnCopyAddress.UseVisualStyleBackColor = true;
+            _btnCopyAddress.Click += BtnCopyAddress_Click;
+            //
+            // _btnCopyCoords
+            //
+            _btnCopyCoords.AutoSize = true;
+            _btnCopyCoords.Location = new Point(509, 5);
+            _btnCopyCoords.Name = "_btnCopyCoords";
+            _btnCopyCoords.Size = new Size(120, 25);
+            _btnCopyCoords.TabIndex = 5;
+            _btnCopyCoords.Text = "Koordinatı kopyala";
+            _btnCopyCoords.UseVisualStyleBackColor = true;
+            _btnCopyCoords.Click += BtnCopyCoords_Click;
+            //
             // _btnPhotos
             //
             _btnPhotos.AutoSize = true;
-            _btnPhotos.Location = new Point(403, 5);
+            _btnPhotos.Location = new Point(655, 5);
             _btnPhotos.Margin = new Padding(20, 3, 3, 3);
             _btnPhotos.Name = "_btnPhotos";
             _btnPhotos.Size = new Size(180, 25);
-            _btnPhotos.TabIndex = 4;
+            _btnPhotos.TabIndex = 6;
             _btnPhotos.Text = "Fotoğrafları indir (referans)";
             _btnPhotos.UseVisualStyleBackColor = true;
             _btnPhotos.Click += BtnPhotos_Click;
@@ -223,10 +249,10 @@ namespace FredPull
             // _btnShowFolder
             //
             _btnShowFolder.AutoSize = true;
-            _btnShowFolder.Location = new Point(589, 5);
+            _btnShowFolder.Location = new Point(841, 5);
             _btnShowFolder.Name = "_btnShowFolder";
             _btnShowFolder.Size = new Size(110, 25);
-            _btnShowFolder.TabIndex = 5;
+            _btnShowFolder.TabIndex = 7;
             _btnShowFolder.Text = "Klasörde göster";
             _btnShowFolder.UseVisualStyleBackColor = true;
             _btnShowFolder.Click += BtnShowFolder_Click;
@@ -234,11 +260,11 @@ namespace FredPull
             // _btnKml
             //
             _btnKml.AutoSize = true;
-            _btnKml.Location = new Point(725, 5);
+            _btnKml.Location = new Point(977, 5);
             _btnKml.Margin = new Padding(20, 3, 3, 3);
             _btnKml.Name = "_btnKml";
             _btnKml.Size = new Size(110, 25);
-            _btnKml.TabIndex = 6;
+            _btnKml.TabIndex = 8;
             _btnKml.Text = "KML dışa aktar";
             _btnKml.UseVisualStyleBackColor = true;
             _btnKml.Click += BtnKml_Click;
@@ -246,10 +272,10 @@ namespace FredPull
             // _btnAnim
             //
             _btnAnim.AutoSize = true;
-            _btnAnim.Location = new Point(841, 5);
+            _btnAnim.Location = new Point(1093, 5);
             _btnAnim.Name = "_btnAnim";
             _btnAnim.Size = new Size(110, 25);
-            _btnAnim.TabIndex = 7;
+            _btnAnim.TabIndex = 9;
             _btnAnim.Text = "Animasyon CSV";
             _btnAnim.UseVisualStyleBackColor = true;
             _btnAnim.Click += BtnAnim_Click;
@@ -652,6 +678,8 @@ namespace FredPull
         private Button _btnOpenMap;
         private Button _btnChoose;
         private Button _btnCopyCard;
+        private Button _btnCopyAddress;
+        private Button _btnCopyCoords;
         private Button _btnPhotos;
         private Button _btnShowFolder;
         private Button _btnKml;

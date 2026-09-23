@@ -88,6 +88,8 @@ public partial class HouseDetailForm : Form
         var card = Card;
         _btnOpenRedfin.Enabled = a != null;
         _btnOpenMap.Enabled = a?.Lat != null && a.Lng != null;
+        _btnCopyAddress.Enabled = a != null && a.Street.Length > 0;
+        _btnCopyCoords.Enabled = a?.Lat != null && a.Lng != null;
         _btnChoose.Enabled = a != null && a.HasHistory && a.OriginalPrice.HasValue && a.CurrentPrice.HasValue && a.Url != card?.Chosen?.Url;
         _btnCopyCard.Enabled = card?.Chosen != null;
         _btnPhotos.Enabled = a != null;
@@ -98,7 +100,7 @@ public partial class HouseDetailForm : Form
         ShowPhotos(a);
         _status.Text = a.Error != null ? $"{a.Street}: {a.Error}"
             : a.RaisedAfterCuts ? $"{a.Street}, {a.City} {a.Zip} — indirimlerden sonra {RedfinListingPicker.Usd(a.RaisedTo)} $'a çıkarıldı (seçimde en sona atılır)"
-            : $"{a.Street}, {a.City} {a.Zip}";
+            : Address(a, State);
     }
 
     void ShowHistory(HouseCandidate a)
@@ -259,6 +261,26 @@ public partial class HouseDetailForm : Form
         _owner.LogListings($"{card.County}: elle seçildi — {card.CardText}");
         FillAll(a.Url);
         _status.Text = $"Seçildi, kaydedildi: {card.CardText}";
+    }
+
+    /// "16525 Wellington Lakes Cir, Fort Myers, FL 33908" — Earth Studio ve Google Maps aramasına yapıştırmak için.
+    static string Address(HouseCandidate a, string state) =>
+        $"{a.Street}, {a.City}, {(a.State.Length > 0 ? a.State : state)} {a.Zip}".Trim().TrimEnd(',');
+
+    void BtnCopyAddress_Click(object? sender, EventArgs e)
+    {
+        if (Current is not { } a) return;
+        var text = Address(a, State);
+        Clipboard.SetText(text);
+        _status.Text = $"Adres panoya kopyalandı: {text}";
+    }
+
+    void BtnCopyCoords_Click(object? sender, EventArgs e)
+    {
+        if (Current is not { Lat: double lat, Lng: double lng }) return;
+        var text = $"{lat.ToString("0.######", Inv)}, {lng.ToString("0.######", Inv)}";
+        Clipboard.SetText(text);
+        _status.Text = $"Koordinat panoya kopyalandı: {text} (Earth Studio aramasına yapıştırılabilir)";
     }
 
     void BtnCopyCard_Click(object? sender, EventArgs e)
