@@ -329,7 +329,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     // ---------- A3-A4: liste ve adaylar ----------
 
     const int PageCap = 350;          // Redfin liste sayfası en fazla bu kadar ilan verir
-    const int MaxListPages = 8;       // ilçe başına en çok liste sayfası
+    const int MaxListPages = 16;      // ilçe başına en çok liste sayfası (Lee County 200-450k'da 8 yetmedi)
     int _listPages;
 
     static string ListUrl(string countyUrl, bool condo, int min, int max) =>
@@ -344,7 +344,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         _listPages++;
         int mid = (min + max) / 2 / 5000 * 5000;
         if (homes.Count < PageCap || mid <= min || mid >= max) return homes;
-        if (_listPages >= MaxListPages)
+        if (_listPages + 2 > MaxListPages)      // bölmek iki sayfa daha ister
         {
             _log($"{_label}: {min / 1000}k-{max / 1000}k hâlâ {PageCap} sınırında ama sayfa bütçesi ({MaxListPages}) doldu");
             return homes;
@@ -458,9 +458,11 @@ public sealed class RedfinListingPicker : IAsyncDisposable
 
     static readonly Regex RentWord = new(@"\b(rent|rents|rental|rentals|rented|for rent)\b", RegexOptions.IgnoreCase);
 
-    /// Kira kaydı mı: "rental" adlı bir alan true, ya da bir metin alanında kira sözcüğü var.
+    /// Kira kaydı mı. Redfin: historyEventType 1 = satış ilanı, 2 = satış, 3 = kira ("Listed for Rent", "Rental Removed").
+    /// Yedek: "rental" adlı bir alan true, ya da bir metin alanında kira sözcüğü var.
     static bool IsRentalEvent(JsonElement e)
     {
+        if (Num(e, "historyEventType") == 3) return true;
         foreach (var p in e.EnumerateObject())
         {
             if (p.Value.ValueKind == JsonValueKind.True && p.Name.Contains("rental", StringComparison.OrdinalIgnoreCase)) return true;
