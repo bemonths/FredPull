@@ -289,7 +289,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         for (int attempt = 1; ; attempt++)
         {
             if (!_page.Url.StartsWith(Site, StringComparison.OrdinalIgnoreCase))
-                await OpenAsync(Site + "/", WaitUntilState.DOMContentLoaded, null, ct);
+                await OpenAsync(Site + "/", null, null, ct);
             await Task.Delay(_rnd.Next(3000, 5001), ct);
 
             var result = await _page.EvaluateAsync<string>(js, query);
@@ -329,7 +329,8 @@ public sealed class RedfinListingPicker : IAsyncDisposable
 
     async Task<List<HouseCandidate>> LoadHomesAsync(string url, CancellationToken ct)
     {
-        var page = await OpenAsync(url, WaitUntilState.NetworkIdle, u => u.Contains("/stingray/api/gis?"), ct);
+        // Hazır: sayfanın kendi gis yanıtı geldi. Gelmezse 20 sn sonunda HTML'deki bloklara düşülür.
+        var page = await OpenAsync(url, u => u.Contains("/stingray/api/gis?"), d => ReadHomes(d.Captured) != null, ct);
 
         // 1) sayfanın kendi gis yanıtları; 2) olmazsa HTML'e gömülü bloklar
         return ReadHomes(page.Captured) ?? ReadHomes(EmbeddedBlocks(page.Html))
@@ -394,7 +395,9 @@ public sealed class RedfinListingPicker : IAsyncDisposable
 
     async Task<List<HistoryEvent>> LoadHistoryAsync(string url, CancellationToken ct)
     {
-        var page = await OpenAsync(url, WaitUntilState.NetworkIdle, u => u.Contains("/stingray/"), ct);
+        // Hazır: fiyat geçmişi bir yanıtta ya da HTML'e gömülü blokta var (genelde ilk HTML'de gelir)
+        var page = await OpenAsync(url, u => u.Contains("/stingray/"),
+            d => ReadEvents(d.Captured) != null || ReadEvents(EmbeddedBlocks(d.Html)) != null, ct);
 
         // 1) sayfanın kendi yanıtları; 2) olmazsa HTML'e gömülü bloklar
         return ReadEvents(page.Captured) ?? ReadEvents(EmbeddedBlocks(page.Html))
@@ -427,6 +430,17 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         var ev = events.OrderByDescending(e => e.Date).ToList();     // yeni → eski (aynı gün sırası korunur)
         int li = ev.FindIndex(e => e.Description is "Listed" or "Relisted");
         if (li < 0) { c.Error = "tarihçede Listed olayı yok"; return; }
+        int saleIndex = ev.FindIndex(li + 1, e => e.Description.StartsWith("Sold", StringComparison.OrdinalIgnoreCase));
+
+        // Fiyatsız yeniden ilan (çekilip tekrar çıkan evde Redfin fiyat yazmayabiliyor): son satıştan bu yana
+        // fiyatlı en yeni Listed/Relisted başlangıç sayılır; gün sayısı Redfin'in timeOnRedfin'iyle uyuşur.
+        var relist = ev[li];
+        if (relist.Price == null)
+        {
+            int end = saleIndex < 0 ? ev.Count : saleIndex;
+            int pi = ev.FindIndex(li + 1, end - li - 1, e => e.Description is "Listed" or "Relisted" && e.Price.HasValue);
+            if (pi >= 0) li = pi;
+        }
 
         var listed = ev[li];
         c.HasHistory = true;
@@ -437,6 +451,9 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         // Mevcut ilan içindeki fiyat değişiklikleri, eski → yeni. İndirim = bir öncekinden düşük fiyat.
         var changes = ev.Take(li).Where(e => e.Description == "Price Changed" && e.Price.HasValue).Reverse().ToList();
         c.CurrentPrice = changes.Count > 0 ? changes[^1].Price : listed.Price;
+        // Fiyatsız yeniden ilandan sonra değişiklik kaydı yoksa güncel fiyat liste sayfasından
+        if (relist.Price == null && !ReferenceEquals(relist, listed) && c.Price > 0 && !changes.Any(e => e.Date >= relist.Date))
+            c.CurrentPrice = c.Price;
         c.Cuts = new();
         int? prev = listed.Price;
         foreach (var e in changes)
@@ -446,19 +463,18 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         }
 
         // Mevcut ilandan önceki en yeni satış; fiyatsız kayıtsa aynı satışın 90 gün içindeki fiyatlı kaydı
-        var older = ev.Skip(li + 1).ToList();
-        var sale = older.FirstOrDefault(e => e.Description.StartsWith("Sold", StringComparison.OrdinalIgnoreCase));
+        var sale = saleIndex >= 0 ? ev[saleIndex] : null;
         if (sale != null)
         {
-            var priced = sale.Price.HasValue ? sale : older.FirstOrDefault(e =>
+            var priced = sale.Price.HasValue ? sale : ev.Skip(saleIndex).FirstOrDefault(e =>
                 e.Description.StartsWith("Sold", StringComparison.OrdinalIgnoreCase) && e.Price.HasValue
                 && Math.Abs(e.Date.DayNumber - sale.Date.DayNumber) <= 90);
             c.LastSaleDate = (priced ?? sale).Date;
             c.LastSalePrice = priced?.Price;
         }
 
-        // Son satıştan bu yana ilana çıkıp satılamadan çekilmiş mi
-        var sinceSale = sale == null ? older : older.TakeWhile(e => !ReferenceEquals(e, sale));
+        // Son satıştan bu yana ilana çıkıp satılamadan çekilmiş mi (fiyatsız yeniden ilan öncesindeki çekilme dahil)
+        var sinceSale = saleIndex < 0 ? ev : ev.Take(saleIndex);
         c.PreviouslyWithdrawn = sinceSale.Any(e =>
             e.Description.Contains("Removed", StringComparison.OrdinalIgnoreCase) ||
             e.Description.Contains("Delisted", StringComparison.OrdinalIgnoreCase) ||
@@ -541,8 +557,10 @@ public sealed class RedfinListingPicker : IAsyncDisposable
 
     // ---------- sayfa açma ----------
 
-    /// Sayfayı açar; capture'a uyan yanıtların gövdelerini toplar. Engel sayfasında 60 sn bekleyip bir kez daha dener, sonra BlockedException.
-    async Task<PageData> OpenAsync(string url, WaitUntilState waitUntil, Func<string, bool>? capture, CancellationToken ct)
+    /// Sayfayı açar (DOMContentLoaded); capture'a uyan yanıtların gövdelerini toplar ve ready sağlanana kadar en çok DataWaitMs bekler.
+    /// Redfin arka planda hiç susmadığı için NetworkIdle beklenmez (her sayfada 45 sn boşa giderdi).
+    /// Engel sayfasında 60 sn bekleyip bir kez daha dener, sonra BlockedException.
+    async Task<PageData> OpenAsync(string url, Func<string, bool>? capture, Func<PageData, bool>? ready, CancellationToken ct)
     {
         for (int attempt = 1; ; attempt++)
         {
@@ -557,32 +575,47 @@ public sealed class RedfinListingPicker : IAsyncDisposable
                 if (capture != null && capture(r.Url)) lock (pending) pending.Add(BodyOrNull(r));
             }
 
-            IResponse? main = null;
             _page.Response += OnResponse;
-            try { main = await _page.GotoAsync(url, new PageGotoOptions { WaitUntil = waitUntil, Timeout = TimeoutMs }); }
-            catch (TimeoutException)
+            try
             {
-                // Redfin'de arka plan istekleri bitmeyebilir; yüklenen kadarıyla devam
-                _log($"{_label}: {TimeoutMs / 1000} sn zaman aşımı, sayfa yüklendiği kadarıyla okunuyor — {url}");
+                IResponse? main = null;
+                try { main = await _page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = TimeoutMs }); }
+                catch (TimeoutException) { _log($"{_label}: {TimeoutMs / 1000} sn zaman aşımı, sayfa yüklendiği kadarıyla okunuyor — {url}"); }
+
+                var html = await SafeAsync(() => _page.ContentAsync());
+                var title = await SafeAsync(() => _page.TitleAsync());
+                if (IsBlocked(main?.Status, title, html))
+                {
+                    _log($"{_label}: Redfin engeli (HTTP {main?.Status}, \"{title}\") — {url}");
+                    if (attempt >= 2) throw new BlockedException($"Redfin erişimi engelledi (HTTP {main?.Status}): {url}");
+                    _status?.Report($"{_label} — Redfin engeli, 60 sn bekleniyor...");
+                    await Task.Delay(60_000, ct);
+                    continue;
+                }
+
+                // Aranan veri (yakalanan yanıt ya da HTML'deki blok) gelene kadar saniyede bir yokla
+                var data = Snapshot(html, pending);
+                var deadline = DateTime.UtcNow.AddMilliseconds(DataWaitMs);
+                while (ready != null && !ready(data) && DateTime.UtcNow < deadline)
+                {
+                    await Task.Delay(1000, ct);
+                    data = Snapshot(await SafeAsync(() => _page.ContentAsync()), pending);
+                }
+                if (ready != null && !ready(data))
+                    _log($"{_label}: {DataWaitMs / 1000} sn içinde beklenen veri gelmedi, eldekiyle devam — {url}");
+                return data;
             }
             finally { _page.Response -= OnResponse; }
-
-            var html = await SafeAsync(() => _page.ContentAsync());
-            var title = await SafeAsync(() => _page.TitleAsync());
-            if (IsBlocked(main?.Status, title, html))
-            {
-                _log($"{_label}: Redfin engeli (HTTP {main?.Status}, \"{title}\") — {url}");
-                if (attempt >= 2) throw new BlockedException($"Redfin erişimi engelledi (HTTP {main?.Status}): {url}");
-                _status?.Report($"{_label} — Redfin engeli, 60 sn bekleniyor...");
-                await Task.Delay(60_000, ct);
-                continue;
-            }
-
-            Task<string?>[] tasks;
-            lock (pending) tasks = pending.ToArray();
-            var bodies = (await Task.WhenAll(tasks)).OfType<string>().ToList();
-            return new PageData(html, bodies);
         }
+    }
+
+    const int DataWaitMs = 20_000;
+
+    /// O ana kadar gövdesi okunmuş yanıtlar + sayfanın HTML'i.
+    static PageData Snapshot(string html, List<Task<string?>> pending)
+    {
+        lock (pending)
+            return new PageData(html, pending.Where(t => t.IsCompletedSuccessfully).Select(t => t.Result).OfType<string>().ToList());
     }
 
     static async Task<string?> BodyOrNull(IResponse r)
