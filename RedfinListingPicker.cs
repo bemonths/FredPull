@@ -329,8 +329,9 @@ public sealed class RedfinListingPicker : IAsyncDisposable
 
     async Task<List<HouseCandidate>> LoadHomesAsync(string url, CancellationToken ct)
     {
-        // Hazır: sayfanın kendi gis yanıtı geldi. Gelmezse 20 sn sonunda HTML'deki bloklara düşülür.
-        var page = await OpenAsync(url, u => u.Contains("/stingray/api/gis?"), d => ReadHomes(d.Captured) != null, ct);
+        // Hazır: gis yanıtı yakalandı ya da ilanlar HTML'e gömülü geldi (canlıda liste HTML'de tam, 350 ilan geliyor)
+        var page = await OpenAsync(url, u => u.Contains("/stingray/api/gis?"),
+            d => ReadHomes(d.Captured) != null || ReadHomes(EmbeddedBlocks(d.Html)) != null, ct);
 
         // 1) sayfanın kendi gis yanıtları; 2) olmazsa HTML'e gömülü bloklar
         return ReadHomes(page.Captured) ?? ReadHomes(EmbeddedBlocks(page.Html))
