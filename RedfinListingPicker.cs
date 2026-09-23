@@ -329,7 +329,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     // ---------- A3-A4: liste ve adaylar ----------
 
     const int PageCap = 350;          // Redfin liste sayfası en fazla bu kadar ilan verir
-    const int MaxListPages = 16;      // ilçe başına en çok liste sayfası (Lee County 200-450k'da 8 yetmedi)
+    const int MaxListPages = 40;      // ilçe başına en çok liste sayfası; kapsam süreden önemli (Lee County 200-450k ~20 sayfa)
     int _listPages;
 
     static string ListUrl(string countyUrl, bool condo, int min, int max) =>
