@@ -86,6 +86,7 @@ public class HouseCandidate
     public int? LastSalePrice { get; set; }
     public bool PreviouslyWithdrawn { get; set; }
     public string? Error { get; set; }
+    public List<System.Text.Json.JsonElement>? RawHistory { get; set; }   // Redfin'in ham fiyat geçmişi (teşhis için)
 
     public int TotalCut => (OriginalPrice ?? 0) - (CurrentPrice ?? 0);
 }

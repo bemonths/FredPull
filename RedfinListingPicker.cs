@@ -18,7 +18,8 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
     public sealed record RedfinRegion(string County, string RegionId, string Url);
-    sealed record HistoryEvent(DateOnly Date, string Description, int? Price);
+    /// Rental: kira ilanı kaydı (satış hikâyesine katılmaz). Raw: Redfin'in ham kaydı (JSON'a teşhis için yazılır).
+    sealed record HistoryEvent(DateOnly Date, string Description, int? Price, bool Rental, JsonElement Raw);
     sealed record PageData(string Html, List<string> Captured);
 
     /// Redfin iki denemede de engelledi: ilçe atlanır.
@@ -204,15 +205,15 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         }
 
         (card.MinPrice, card.MaxPrice) = band ?? PriceBand(medianListPrice);
-        card.ListUrl = $"{Site}{region.Url}/filter/property-type={(condo ? "condo" : "house")},min-days-on-market=90," +
-                       $"min-price={card.MinPrice / 1000}k,max-price={card.MaxPrice / 1000}k";
+        card.ListUrl = ListUrl(region.Url, condo, card.MinPrice, card.MaxPrice);
 
         status.Report($"{county.Name} — liste açılıyor");
-        var homes = await LoadHomesAsync(card.ListUrl, ct);
+        _listPages = 0;
+        var homes = await LoadBandAsync(region.Url, condo, card.MinPrice, card.MaxPrice, ct);
         card.ListCount = homes.Count;
         card.Candidates = PickCandidates(homes, condo, card.MinPrice, card.MaxPrice);
         status.Report($"{county.Name} — {card.Candidates.Count} aday");
-        _log($"{county.Name}: liste {homes.Count} ilan, {card.Candidates.Count} aday — {card.ListUrl}");
+        _log($"{county.Name}: liste {homes.Count} ilan ({_listPages} sayfa), {card.Candidates.Count} aday — {card.ListUrl}");
 
         foreach (var c in card.Candidates)
         {
@@ -327,6 +328,35 @@ public sealed class RedfinListingPicker : IAsyncDisposable
 
     // ---------- A3-A4: liste ve adaylar ----------
 
+    const int PageCap = 350;          // Redfin liste sayfası en fazla bu kadar ilan verir
+    const int MaxListPages = 8;       // ilçe başına en çok liste sayfası
+    int _listPages;
+
+    static string ListUrl(string countyUrl, bool condo, int min, int max) =>
+        $"{Site}{countyUrl}/filter/property-type={(condo ? "condo" : "house")},min-days-on-market=90,min-price={min / 1000}k,max-price={max / 1000}k";
+
+    /// Liste 350 sınırına dayanırsa fiyat bandını ikiye bölüp parçaları ayrı açar (gerekirse tekrar böler).
+    /// Sınırda Redfin her seferinde farklı bir 350'yi veriyor; bölmeden "en eski ilanlar" ilçenin en eskileri olmuyor.
+    async Task<List<HouseCandidate>> LoadBandAsync(string countyUrl, bool condo, int min, int max, CancellationToken ct)
+    {
+        if (_listPages > 0) _status?.Report($"{_label} — liste {min / 1000}k-{max / 1000}k açılıyor");
+        var homes = await LoadHomesAsync(ListUrl(countyUrl, condo, min, max), ct);
+        _listPages++;
+        int mid = (min + max) / 2 / 5000 * 5000;
+        if (homes.Count < PageCap || mid <= min || mid >= max) return homes;
+        if (_listPages >= MaxListPages)
+        {
+            _log($"{_label}: {min / 1000}k-{max / 1000}k hâlâ {PageCap} sınırında ama sayfa bütçesi ({MaxListPages}) doldu");
+            return homes;
+        }
+
+        _log($"{_label}: {min / 1000}k-{max / 1000}k listesi {PageCap} sınırında, bant bölünüyor");
+        var all = homes.ToDictionary(h => h.Url);
+        foreach (var h in await LoadBandAsync(countyUrl, condo, min, mid, ct)) all[h.Url] = h;
+        foreach (var h in await LoadBandAsync(countyUrl, condo, mid, max, ct)) all[h.Url] = h;
+        return all.Values.ToList();
+    }
+
     async Task<List<HouseCandidate>> LoadHomesAsync(string url, CancellationToken ct)
     {
         // Hazır: gis yanıtı yakalandı ya da ilanlar HTML'e gömülü geldi (canlıda liste HTML'de tam, 350 ilan geliyor)
@@ -419,16 +449,38 @@ public sealed class RedfinListingPicker : IAsyncDisposable
                 if (!ms.HasValue) continue;
                 // eventDate ABD'de gece yarısı (UTC 04-10); UTC tarihi aynı gün
                 var date = DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeMilliseconds((long)ms.Value).UtcDateTime);
-                list.Add(new HistoryEvent(date, Str(e, "eventDescription") ?? "", (int?)Num(e, "price")));
+                list.Add(new HistoryEvent(date, Str(e, "eventDescription") ?? "", (int?)Num(e, "price"), IsRentalEvent(e), e.Clone()));
             }
             return list;
         }
         return null;
     }
 
+    static readonly Regex RentWord = new(@"\b(rent|rents|rental|rentals|rented|for rent)\b", RegexOptions.IgnoreCase);
+
+    /// Kira kaydı mı: "rental" adlı bir alan true, ya da bir metin alanında kira sözcüğü var.
+    static bool IsRentalEvent(JsonElement e)
+    {
+        foreach (var p in e.EnumerateObject())
+        {
+            if (p.Value.ValueKind == JsonValueKind.True && p.Name.Contains("rental", StringComparison.OrdinalIgnoreCase)) return true;
+            if (p.Value.ValueKind == JsonValueKind.String && RentWord.IsMatch(p.Value.GetString() ?? "")) return true;
+        }
+        return false;
+    }
+
+    /// Bunun altındaki fiyatlar satış fiyatı değildir: aylık kira ya da sembolik devir (ör. 10 $'lık tapu devri).
+    const int MinRealPrice = 25_000;
+
     static void ApplyHistory(HouseCandidate c, List<HistoryEvent> events)
     {
-        var ev = events.OrderByDescending(e => e.Date).ToList();     // yeni → eski (aynı gün sırası korunur)
+        c.RawHistory = events.Select(e => e.Raw).ToList();
+
+        // Kira kayıtları ve satış olmayan küçük fiyatlı ilan kayıtları (aylık kira) satış hikâyesine girmez.
+        // Satış kaydı tutulur; sembolik fiyatı aşağıda "alış fiyatı" sayılmaz.
+        var ev = events
+            .Where(e => !e.Rental && !(e.Price is > 0 and < MinRealPrice && !e.Description.StartsWith("Sold", StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(e => e.Date).ToList();     // yeni → eski (aynı gün sırası korunur)
         int li = ev.FindIndex(e => e.Description is "Listed" or "Relisted");
         if (li < 0) { c.Error = "tarihçede Listed olayı yok"; return; }
         int saleIndex = ev.FindIndex(li + 1, e => e.Description.StartsWith("Sold", StringComparison.OrdinalIgnoreCase));
@@ -463,12 +515,12 @@ public sealed class RedfinListingPicker : IAsyncDisposable
             prev = e.Price;
         }
 
-        // Mevcut ilandan önceki en yeni satış; fiyatsız kayıtsa aynı satışın 90 gün içindeki fiyatlı kaydı
+        // Mevcut ilandan önceki en yeni satış; fiyatsız (ya da sembolik fiyatlı) kayıtsa aynı satışın 90 gün içindeki fiyatlı kaydı
         var sale = saleIndex >= 0 ? ev[saleIndex] : null;
         if (sale != null)
         {
-            var priced = sale.Price.HasValue ? sale : ev.Skip(saleIndex).FirstOrDefault(e =>
-                e.Description.StartsWith("Sold", StringComparison.OrdinalIgnoreCase) && e.Price.HasValue
+            var priced = sale.Price >= MinRealPrice ? sale : ev.Skip(saleIndex).FirstOrDefault(e =>
+                e.Description.StartsWith("Sold", StringComparison.OrdinalIgnoreCase) && e.Price >= MinRealPrice
                 && Math.Abs(e.Date.DayNumber - sale.Date.DayNumber) <= 90);
             c.LastSaleDate = (priced ?? sale).Date;
             c.LastSalePrice = priced?.Price;
