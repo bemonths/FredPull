@@ -6,22 +6,30 @@ using Microsoft.Playwright;
 
 namespace FredPull;
 
-/// Redfin'den her ilçe için "aylardır satılamayan tek bir ev" seçer (Playwright, görünür Chromium, kalıcı profil).
+/// Redfin'den her ilçe için "aylardır satılamayan tek bir ev" seçer (Playwright, görünür Chrome, kalıcı profil).
 /// Akış: county adresi (autocomplete, önbellekli) → filtreli liste (≥90 gün) → en eski 5 aday → ilan sayfasında fiyat geçmişi → seçim.
 public sealed class RedfinListingPicker : IAsyncDisposable
 {
     const string Site = "https://www.redfin.com";
     const int TimeoutMs = 45_000;
+    public const string CdpEndpoint = "http://localhost:9222";
 
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
     public sealed record RedfinRegion(string County, string RegionId, string Url);
     sealed record HistoryEvent(DateOnly Date, string Description, int? Price);
-    sealed record PageData(string Html, List<string> Captured, string? MainBody);
+    sealed record PageData(string Html, List<string> Captured);
+
+    /// Redfin iki denemede de engelledi: ilçe atlanır.
+    public sealed class BlockedException(string message) : Exception(message);
+
+    /// "Açık Chrome'a bağlan" seçiliyken 9222 portunda Chrome yok.
+    public sealed class ChromeNotReachableException(string message) : Exception(message);
 
     readonly IPlaywright _pw;
     readonly IBrowserContext _ctx;
+    readonly IBrowser? _cdpBrowser;       // açık Chrome'a bağlanıldıysa; kapatılmaz, yalnızca bağlantı kesilir
     IPage _page;
     readonly string _regionsFile;
     readonly Dictionary<string, RedfinRegion> _regions;
@@ -34,15 +42,40 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     /// Kullanıcı tarayıcı penceresini kapattıysa true.
     public bool Closed { get; private set; }
 
-    RedfinListingPicker(IPlaywright pw, IBrowserContext ctx, IPage page, string outDir, Action<string> log)
+    RedfinListingPicker(IPlaywright pw, IBrowserContext ctx, IPage page, IBrowser? cdpBrowser, string outDir, Action<string> log)
     {
-        _pw = pw; _ctx = ctx; _page = page; _log = log;
+        _pw = pw; _ctx = ctx; _page = page; _cdpBrowser = cdpBrowser; _log = log;
         _regionsFile = Path.Combine(outDir, "redfin_regions.json");
         _regions = LoadRegions(_regionsFile);
-        _ctx.Close += (_, _) => Closed = true;
+        if (cdpBrowser != null) cdpBrowser.Disconnected += (_, _) => Closed = true;
+        else _ctx.Close += (_, _) => Closed = true;
     }
 
     // ---------- tarayıcı ----------
+
+    /// Kurulu Google Chrome'un yolu; yoksa null.
+    public static string? ChromePath() =>
+        new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86, Environment.SpecialFolder.LocalApplicationData }
+            .Select(f => Path.Combine(Environment.GetFolderPath(f), "Google", "Chrome", "Application", "chrome.exe"))
+            .FirstOrDefault(File.Exists);
+
+    static string DebugProfileDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "pw-chrome");
+
+    /// "Açık Chrome'a bağlan" için kullanıcının çalıştıracağı komut.
+    public static string DebugChromeCommand => $"chrome.exe --remote-debugging-port=9222 --user-data-dir=\"{DebugProfileDir}\"";
+
+    /// Chrome'u 9222 hata ayıklama portuyla, ayrı profille ve Redfin açık başlatır. Chrome yoksa false.
+    public static bool StartDebugChrome()
+    {
+        var chrome = ChromePath();
+        if (chrome == null) return false;
+        var psi = new System.Diagnostics.ProcessStartInfo(chrome) { UseShellExecute = false };
+        psi.ArgumentList.Add("--remote-debugging-port=9222");
+        psi.ArgumentList.Add($"--user-data-dir={DebugProfileDir}");
+        psi.ArgumentList.Add(Site + "/");
+        System.Diagnostics.Process.Start(psi);
+        return true;
+    }
 
     static string BrowsersDir()
     {
@@ -65,31 +98,36 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         if (code != 0) throw new InvalidOperationException($"Chromium kurulamadı (playwright install çıkış kodu {code}).");
     }
 
-    public static async Task<RedfinListingPicker> StartAsync(string baseDir, string outDir, Action<string> log, IProgress<string> status)
+    /// connectToChrome: kullanıcının 9222 portuyla açtığı Chrome'a bağlan; değilse kurulu Chrome'u (yoksa Playwright Chromium'u) aç.
+    public static async Task<RedfinListingPicker> StartAsync(string baseDir, string outDir, bool connectToChrome, Action<string> log, IProgress<string> status)
     {
         var pw = await Playwright.CreateAsync();
         try
         {
-            var userDir = Path.Combine(baseDir, "pw-profile");
-            var opts = new BrowserTypeLaunchPersistentContextOptions
-            {
-                Headless = false,
-                ViewportSize = new ViewportSize { Width = 1280, Height = 900 },
-            };
             IBrowserContext ctx;
-            try { ctx = await pw.Chromium.LaunchPersistentContextAsync(userDir, opts); }
-            catch (PlaywrightException ex) when (ex.Message.Contains("Executable doesn't exist", StringComparison.OrdinalIgnoreCase))
+            IBrowser? cdp = null;
+            IPage page;
+            if (connectToChrome)
             {
-                // Chromium yok ya da bu Playwright sürümüne ait değil: kur, bir kez daha dene.
-                status.Report("Chromium kuruluyor (ilk kullanım, 1-2 dk)...");
-                log("Chromium bulunamadı, kuruluyor.");
-                await Task.Run(InstallChromium);
-                ctx = await pw.Chromium.LaunchPersistentContextAsync(userDir, opts);
+                try { cdp = await pw.Chromium.ConnectOverCDPAsync(CdpEndpoint); }
+                catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
+                {
+                    log($"{CdpEndpoint} bağlantısı kurulamadı: {FirstLine(ex.Message)}");
+                    throw new ChromeNotReachableException($"Chrome'u --remote-debugging-port=9222 ile başlat.\n\n{DebugChromeCommand}");
+                }
+                ctx = cdp.Contexts.FirstOrDefault() ?? await cdp.NewContextAsync();
+                page = await ctx.NewPageAsync();         // kullanıcının sekmelerine dokunma, yeni sekmede çalış
+                log($"Açık Chrome'a bağlanıldı ({CdpEndpoint}).");
+            }
+            else
+            {
+                ctx = await LaunchAsync(pw, baseDir, log, status);
+                await ctx.AddInitScriptAsync("Object.defineProperty(navigator,'webdriver',{get:()=>undefined});");
+                page = ctx.Pages.FirstOrDefault() ?? await ctx.NewPageAsync();
             }
             ctx.SetDefaultTimeout(TimeoutMs);
             ctx.SetDefaultNavigationTimeout(TimeoutMs);
-            var page = ctx.Pages.FirstOrDefault() ?? await ctx.NewPageAsync();
-            return new RedfinListingPicker(pw, ctx, page, outDir, log);
+            return new RedfinListingPicker(pw, ctx, page, cdp, outDir, log);
         }
         catch
         {
@@ -98,9 +136,53 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         }
     }
 
+    /// Kurulu Google Chrome (otomasyon işaretleri kapalı); açılamazsa Playwright'ın kendi Chromium'u.
+    static async Task<IBrowserContext> LaunchAsync(IPlaywright pw, string baseDir, Action<string> log, IProgress<string> status)
+    {
+        var opts = new BrowserTypeLaunchPersistentContextOptions
+        {
+            Channel = "chrome",
+            Headless = false,
+            IgnoreDefaultArgs = new[] { "--enable-automation" },
+            Args = new[] { "--disable-blink-features=AutomationControlled", "--no-first-run", "--no-default-browser-check" },
+            ViewportSize = ViewportSize.NoViewport,     // sabit görünüm yok, pencere boyutu
+            Locale = "en-US",
+        };
+        try { return await pw.Chromium.LaunchPersistentContextAsync(Path.Combine(baseDir, "pw-profile"), opts); }
+        catch (PlaywrightException ex)
+        {
+            log($"Google Chrome açılamadı, Playwright Chromium kullanılıyor: {FirstLine(ex.Message)}");
+        }
+
+        // Chromium profili ayrı: Chrome profilini eski sürüm tarayıcıyla açmak onu bozabilir.
+        opts.Channel = null;
+        var dir = Path.Combine(baseDir, "pw-profile-chromium");
+        try { return await pw.Chromium.LaunchPersistentContextAsync(dir, opts); }
+        catch (PlaywrightException ex) when (ex.Message.Contains("Executable doesn't exist", StringComparison.OrdinalIgnoreCase))
+        {
+            // Chromium yok ya da bu Playwright sürümüne ait değil: kur, bir kez daha dene.
+            status.Report("Chromium kuruluyor (ilk kullanım, 1-2 dk)...");
+            log("Chromium bulunamadı, kuruluyor.");
+            await Task.Run(InstallChromium);
+            return await pw.Chromium.LaunchPersistentContextAsync(dir, opts);
+        }
+    }
+
+    static string FirstLine(string s) => s.Split('\n')[0].Trim();
+
     public async ValueTask DisposeAsync()
     {
-        try { await _ctx.CloseAsync(); } catch (PlaywrightException) { }
+        try
+        {
+            if (_cdpBrowser != null)
+            {
+                // Kullanıcının Chrome'u açık kalır: yalnızca bizim sekmeyi kapat, bağlantıyı kes.
+                if (!_page.IsClosed) await _page.CloseAsync();
+                await _cdpBrowser.CloseAsync();
+            }
+            else await _ctx.CloseAsync();
+        }
+        catch (PlaywrightException) { }
         _pw.Dispose();
     }
 
@@ -138,7 +220,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
             status.Report($"{county.Name} — {c.Street} fiyat geçmişi...");
             try { ApplyHistory(c, await LoadHistoryAsync(c.Url, ct)); }
             catch (OperationCanceledException) { throw; }
-            catch (Exception ex) when (!Closed)
+            catch (Exception ex) when (!Closed && ex is not BlockedException)     // engel: ilçeyi atla
             {
                 c.Error = ex.Message;
                 _log($"{county.Name}: {c.Url} fiyat geçmişi alınamadı — {ex.Message}");
@@ -171,9 +253,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         if (_regions.TryGetValue(key, out var cached)) return cached;
 
         _status?.Report($"{county.Name} — Redfin bölgesi aranıyor");
-        var url = $"{Site}/stingray/do/location-autocomplete?location={Uri.EscapeDataString($"{county.Name}, {county.State}")}&v=2";
-        var page = await OpenAsync(url, WaitUntilState.Load, null, ct);
-        var text = page.MainBody ?? await _page.InnerTextAsync("body");
+        var text = await AutocompleteAsync($"{county.Name}, {county.State}", ct);
 
         using var doc = ParseRedfin(text);
         if (doc == null || !doc.RootElement.TryGetProperty("payload", out var payload)) return null;
@@ -199,6 +279,31 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         }
         if (loose != null) _log($"{county.Name}: ad tam eşleşmedi, eyaletteki ilk county sonucu alındı: {loose.Url}");
         return loose == null ? null : Remember(key, loose);
+    }
+
+    /// Stingray adresine sayfa olarak gitmez: redfin.com içindeyken sitenin kendi fetch'iyle çağırır.
+    async Task<string> AutocompleteAsync(string query, CancellationToken ct)
+    {
+        const string js = "q => fetch('/stingray/do/location-autocomplete?location=' + encodeURIComponent(q) + '&v=2', { credentials: 'include' })" +
+                          ".then(async r => r.status + '|' + await r.text())";
+        for (int attempt = 1; ; attempt++)
+        {
+            if (!_page.Url.StartsWith(Site, StringComparison.OrdinalIgnoreCase))
+                await OpenAsync(Site + "/", WaitUntilState.DOMContentLoaded, null, ct);
+            await Task.Delay(_rnd.Next(3000, 5001), ct);
+
+            var result = await _page.EvaluateAsync<string>(js, query);
+            int bar = result.IndexOf('|');
+            int.TryParse(result[..Math.Max(0, bar)], out var httpStatus);
+            var body = result[(bar + 1)..];
+            if (httpStatus is not (403 or 429) && !IsBlocked(null, "", body)) return body;
+
+            var url = $"{Site}/stingray/do/location-autocomplete?location={Uri.EscapeDataString(query)}&v=2";
+            _log($"{_label}: Redfin engeli (HTTP {httpStatus}, autocomplete) — {url}");
+            if (attempt >= 2) throw new BlockedException($"Redfin erişimi engelledi (HTTP {httpStatus}): {url}");
+            _status?.Report($"{_label} — Redfin engeli, 60 sn bekleniyor...");
+            await Task.Delay(60_000, ct);
+        }
     }
 
     RedfinRegion Remember(string key, RedfinRegion region)
@@ -436,7 +541,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
 
     // ---------- sayfa açma ----------
 
-    /// Sayfayı açar; capture'a uyan yanıtların gövdelerini toplar. Engel sayfasında 60 sn bekleyip bir kez daha dener.
+    /// Sayfayı açar; capture'a uyan yanıtların gövdelerini toplar. Engel sayfasında 60 sn bekleyip bir kez daha dener, sonra BlockedException.
     async Task<PageData> OpenAsync(string url, WaitUntilState waitUntil, Func<string, bool>? capture, CancellationToken ct)
     {
         for (int attempt = 1; ; attempt++)
@@ -467,7 +572,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
             if (IsBlocked(main?.Status, title, html))
             {
                 _log($"{_label}: Redfin engeli (HTTP {main?.Status}, \"{title}\") — {url}");
-                if (attempt >= 2) throw new InvalidOperationException("Redfin erişimi engelledi (Access Denied)");
+                if (attempt >= 2) throw new BlockedException($"Redfin erişimi engelledi (HTTP {main?.Status}): {url}");
                 _status?.Report($"{_label} — Redfin engeli, 60 sn bekleniyor...");
                 await Task.Delay(60_000, ct);
                 continue;
@@ -476,8 +581,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
             Task<string?>[] tasks;
             lock (pending) tasks = pending.ToArray();
             var bodies = (await Task.WhenAll(tasks)).OfType<string>().ToList();
-            var mainBody = capture == null && main != null ? await BodyOrNull(main) : null;
-            return new PageData(html, bodies, mainBody);
+            return new PageData(html, bodies);
         }
     }
 

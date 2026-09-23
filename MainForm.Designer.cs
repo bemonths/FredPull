@@ -53,6 +53,7 @@ namespace FredPull
             _cbHouseMode = new ComboBox();
             _lblBand = new Label();
             _txtBand = new TextBox();
+            _chkCdp = new CheckBox();
             _btnHouseCards = new Button();
             _split = new SplitContainer();
             _grid = new DataGridView();
@@ -105,6 +106,7 @@ namespace FredPull
             _top.Controls.Add(_cbHouseMode);
             _top.Controls.Add(_lblBand);
             _top.Controls.Add(_txtBand);
+            _top.Controls.Add(_chkCdp);
             _top.Controls.Add(_btnHouseCards);
             _top.Dock = DockStyle.Top;
             _top.Location = new Point(0, 0);
@@ -277,13 +279,24 @@ namespace FredPull
             _txtBand.Size = new Size(110, 23);
             _txtBand.TabIndex = 15;
             //
+            // _chkCdp
+            //
+            _chkCdp.AutoSize = true;
+            _chkCdp.Location = new Point(780, 45);
+            _chkCdp.Margin = new Padding(10, 5, 3, 3);
+            _chkCdp.Name = "_chkCdp";
+            _chkCdp.Size = new Size(177, 19);
+            _chkCdp.TabIndex = 16;
+            _chkCdp.Text = "Açık Chrome'a bağlan (9222)";
+            _chkCdp.UseVisualStyleBackColor = true;
+            //
             // _btnHouseCards
             //
             _btnHouseCards.AutoSize = true;
-            _btnHouseCards.Location = new Point(770, 40);
+            _btnHouseCards.Location = new Point(963, 40);
             _btnHouseCards.Name = "_btnHouseCards";
             _btnHouseCards.Size = new Size(122, 25);
-            _btnHouseCards.TabIndex = 16;
+            _btnHouseCards.TabIndex = 17;
             _btnHouseCards.Text = "Ev kartlarını topla";
             _btnHouseCards.UseVisualStyleBackColor = true;
             _btnHouseCards.Click += BtnHouseCards_Click;
@@ -569,6 +582,7 @@ namespace FredPull
         private ComboBox _cbHouseMode;
         private Label _lblBand;
         private TextBox _txtBand;
+        private CheckBox _chkCdp;
         private Button _btnHouseCards;
 
         // Sol: tablo

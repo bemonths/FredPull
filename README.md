@@ -24,10 +24,11 @@ Skor 60+ kırmızı, 40-59 turuncu. Başlığa tıkla sıralanır, başlık üst
 
 ## Ev kartları (Redfin ilanları)
 Her ilçe için "aylardır satılamayan tek bir ev" seçer. Tabloda ilçeleri seç, mod (Müstakil ev / Daire) ve isteğe bağlı bant (bin $, ör. 200-450; boş = ilçe medyan liste fiyatının %60-115'i) gir, "Ev kartlarını topla".
-- İlk basışta Playwright Chromium iner (1-2 dk). Redfin görünür bir tarayıcı penceresinde açılır; bitene kadar kapatma. Profil: exe yanındaki pw-profile.
+- Redfin kurulu Google Chrome'da, exe yanındaki ayrı bir profille (pw-profile) görünür pencerede açılır; bitene kadar kapatma. Chrome yoksa Playwright Chromium kullanılır (ilk kullanımda iner, 1-2 dk).
+- Redfin yine 403 verirse "Açık Chrome'a bağlan (9222)" kutusunu işaretle: Chrome'u `chrome.exe --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\pw-chrome"` ile başlat (program bağlanamazsa bunu önerir ve başlatabilir), Redfin'i o pencerede bir kez elle aç, sonra "Ev kartlarını topla". Program yeni bir sekmede çalışır, bitince Chrome'un açık kalır.
 - Kural: ≥90 gün ilanda, yeni inşaat değil, en az 2 oda; en eski 5 aday içinden fiyat geçmişinde 2+ indirim alan (yoksa 1 indirim + 120 gün) seçilir.
 - Sonuç sağ panelin en üstünde "EV KARTI" olarak görünür; ranking_XX.csv'ye house_card sütunu eklenir.
-- Redfin engellerse ("Access Denied") 60 sn bekleyip bir kez daha dener, olmazsa ilçeyi atlar.
+- Redfin engellerse ("Access Denied" / 403) 60 sn bekleyip bir kez daha dener, olmazsa ilçeyi atlar ve adresi log_listings.txt'e yazar.
 
 ## Sağ panel
 Seçili ilçe için: okuma (3-5 cümle, sonunda "Sonuç"), ilçe / eyalet / ABD yan yana rakamlar, skor dökümü, tanımlar.

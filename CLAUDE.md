@@ -16,7 +16,7 @@ ABD ilçelerinin (county) konut piyasasını iki kaynaktan okuyup her ilçe içi
 ## Teknik
 - .NET 8 WinForms (`net8.0-windows`), tek form. Paketler: `ScottPlot.WinForms 5.0.*`, `Microsoft.Playwright 1.62.0`.
 - Derleme: `dotnet build` ya da Visual Studio 2026 (`FredPull.sln`). Uyarı olarak yalnızca OpenTK NU1701 (ScottPlot bağımlılığı, zararsız) çıkar.
-- Çalışma dosyaları exe yanında (`bin\Debug\net8.0-windows\`): `fred_api_key.txt`, `counties_all.txt`, `redfin\`, `out\`, `pw-profile\`. Hepsi `.gitignore`'da; **API anahtarını asla commit'leme.**
+- Çalışma dosyaları exe yanında (`bin\Debug\net8.0-windows\`): `fred_api_key.txt`, `counties_all.txt`, `redfin\`, `out\`, `pw-profile\`, `pw-profile-chromium\`. Hepsi `.gitignore`'da; **API anahtarını asla commit'leme.**
 
 ## Dosyalar
 | Dosya | Görev |
@@ -30,11 +30,12 @@ ABD ilçelerinin (county) konut piyasasını iki kaynaktan okuyup her ilçe içi
 | `RedfinListingPicker.cs` | Playwright ile Redfin ilan toplayıcısı (ev kartları), listings dosyaları. |
 | `CountyCatalog.cs` | Eyalet listesi, Sayım Bürosu ilçe/FIPS kataloğu, Florida yedeği. |
 | `FredPull_CLAUDE_CODE_TASK.md` | 2026-09-23'te uygulanan görev tanımı (tarihsel kayıt). |
+| `FredPull_TASK_EK_Redfin403.md` | Aynı gün uygulanan ek: Redfin 403'e karşı tarayıcı ayarları (tarihsel kayıt). |
 
 ## Arayüz
 Üst çubuk iki satır:
 1. Eyalet · ilçe sayısı · FRED API anahtarı · **Verileri çek** · İptal · Son sonucu yükle · out klasörü
-2. Redfin verisini indir · Redfin tarihi · **Redfin'i mevcut sonuca ekle** · Ev kartı: [Müstakil ev / Daire] · Bant (bin $) · **Ev kartlarını topla**
+2. Redfin verisini indir · Redfin tarihi · **Redfin'i mevcut sonuca ekle** · Ev kartı: [Müstakil ev / Daire] · Bant (bin $) · ☐ Açık Chrome'a bağlan (9222) · **Ev kartlarını topla**
 
 Sol: 10 sütunlu tablo (çoklu seçim açık; Ctrl/Shift, Ctrl+A). Sağ: metrik grafiği (ScottPlot) + bilgi metni. Bilgi metni odaktaki satırı (`CurrentRow`) gösterir; ilçenin ev kartı varsa en üstte "EV KARTI" bölümü çıkar.
 
@@ -53,14 +54,19 @@ Sol: 10 sütunlu tablo (çoklu seçim açık; Ctrl/Shift, Ctrl+A). Sağ: metrik 
 - **"Küçük taban"**: satılık ev < 300 ya da (Redfin varsa) son ay satılan < 40. Skor korunur, sinyal "Küçük taban" olur, satır gri/beyaz, okuma sonuna "Uyarı: az ilanlı county, yüzdeler güvenilmez." eklenir; tabloda ve `ranking_XX.csv`'de en alta iner (`Ranked()`).
 
 ## Ev kartları (`RedfinListingPicker`)
-Seçili satırlar için (seçim yoksa hepsini sorar) sırayla çalışır; tek görünür Chromium (`Headless = false`), kalıcı profil `pw-profile`, sayfalar arası 3-5 sn bekleme, 45 sn zaman aşımı. İlk kullanımda Chromium yoksa `playwright install chromium` çalıştırır.
-1. **County adresi:** `stingray/do/location-autocomplete` → `/county/{id}/{ST}/{Ad}`; `out\redfin_regions.json`'da önbelleklenir.
+Seçili satırlar için (seçim yoksa hepsini sorar) sırayla çalışır; tek görünür tarayıcı, sayfalar arası 3-5 sn bekleme, 45 sn zaman aşımı.
+
+**Tarayıcı** (Redfin, Playwright'ın kendi Chromium'unu CloudFront 403 "Request blocked" ile engellediği için):
+- Varsayılan: kurulu **Google Chrome** (`Channel = "chrome"`), profil `pw-profile`, `--enable-automation` kapalı, `--disable-blink-features=AutomationControlled`, `ViewportSize.NoViewport`, `Locale en-US`, açılışta `navigator.webdriver` → undefined (init script). Chrome açılamazsa log'a yazıp Playwright Chromium'a düşer (ayrı profil `pw-profile-chromium`; yoksa `playwright install chromium`).
+- **"Açık Chrome'a bağlan (9222)"** onay kutusu: kullanıcının `chrome.exe --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\pw-chrome"` ile açtığı Chrome'a `ConnectOverCDPAsync` ile bağlanır, yeni bir sekmede çalışır; bitince yalnızca o sekmeyi kapatıp bağlantıyı keser (kullanıcının Chrome'u açık kalır). Bağlanamazsa mesaj komutu gösterir ve Chrome'u bu ayarla başlatmayı önerir.
+
+1. **County adresi:** stingray adresine sayfa olarak **gidilmez**. Sayfa redfin.com'da değilse önce `https://www.redfin.com/` normal açılır, 3-5 sn beklenir, sonra `page.EvaluateAsync` ile site içinden `fetch('/stingray/do/location-autocomplete?...', {credentials:'include'})` çağrılır → `/county/{id}/{ST}/{Ad}`; `out\redfin_regions.json`'da önbelleklenir.
 2. **Liste:** `{countyUrl}/filter/property-type=house|condo,min-days-on-market=90,min-price=Xk,max-price=Yk`. Bant: Bant kutusu doluysa o (ör. `200-450`), değilse FRED medyan liste fiyatının 0,6-1,15 katı (5.000'e yuvarlı), o da yoksa 200k-450k. İlan verisi önce sayfanın `/stingray/api/gis?` yanıtından yakalanır, olmazsa HTML'e gömülü `"text":"{}&&{...}"` bloklarından okunur.
 3. **Aday:** müstakil = propertyType 6 (daire 3), `timeOnRedfin` ≥ 90 gün, yeni inşaat değil, yearBuilt ≤ bu yıl − 2, en az 2 oda, bant içinde, mlsStatus "Active". Gün azalan ilk 5.
 4. **Fiyat geçmişi:** ilan sayfasında `payload.propertyHistoryInfo.events`. Mevcut ilan = en yeni Listed/Relisted. İndirim = bir önceki fiyattan **düşük** Price Changed (artış sayılmaz). Son satış = mevcut ilandan önceki en yeni Sold kaydı (fiyatsızsa 90 gün içindeki fiyatlı kaydı). previouslyWithdrawn = son satıştan bu yana Removed/Delisted/Withdrawn/Expired.
 5. **Seçim:** 2+ indirim (indirim sayısı, sonra gün azalan); yoksa 1 indirim + ≥ 120 gün; yoksa "uygun ev bulunamadı".
 6. **cardText:** `Cape Coral: 3 Haziran'da 439.900 $'a çıktı, 2 indirimle 399.900 $, 112 gündür satılık; sahibi Ocak 2022'de 500.000 $'a almıştı.` Bu yıl değilse tarih yıllı yazılır (`1 Eylül 2025'te`). Bulunma ekleri ay adı ve yılın okunuşuna göre (`MonthSuffix`, `YearSuffix`); sayılar noktayla binlik ayrılır.
-7. Engel ("Access Denied", HTTP 403/429, CloudFront "Request blocked"): 60 sn bekle, bir kez daha dene, olmazsa ilçeyi atla. Tarayıcı penceresi kapatılırsa toplama durur.
+7. Engel ("Access Denied", HTTP 403/429, CloudFront "Request blocked"; sayfa, autocomplete ya da ilan sayfası): 60 sn bekle, bir kez daha dene; ikinci engelde `BlockedException` → **ilçe atlanır**, URL `log_listings.txt`'e yazılır. Tarayıcı penceresi kapatılırsa (ya da bağlı Chrome kapanırsa) toplama durur.
 
 Sonuç dosyaları çalıştırmalar arasında **ilçe bazında birleşir** (Miami-Dade'i ayrıca Daire modunda çalıştırmak diğerlerini silmez). Hata alan çalıştırma, önceki başarılı kartın üstüne yazmaz.
 
@@ -83,8 +89,12 @@ Commit'ler: `5a181d8` orijinal hâl · `16d94b8` aşağıdaki değişiklikler ·
 - md'ye göre farklar/eklemeler: Bant (bin $) kutusu (kabul testi 200-450 ile çalıştırılabilsin diye; Lee County'nin FRED medyanı olduğundan otomatik bant farklı çıkar), fiyat artışı indirim sayılmaz, 7+ stokla tetiklenen "Alıcı çekildi"de sonuç cümlesi "satış düşerken" demez, mlsStatus = Active şartı, previouslyWithdrawn yalnız son satıştan sonrası, listings dosyaları birleşir.
 - Doğrulama: derleme temiz; ev kartı mantığı md'deki kabul testi verisiyle (152 Nicholas Pkwy E) geçici bir test projesinde sınandı, `cardText` md örneğiyle birebir aynı; uygulama açılıp B1/B3 görsel olarak kontrol edildi (Miami-Dade "Alıcı çekildi", Columbia ve Putnam "Küçük taban").
 
+### 2026-09-23 — görev eki: Redfin 403
+Redfin, Playwright Chromium'u CloudFront 403 ile engelledi. Ek uygulandı: kurulu Chrome + otomasyon işaretleri kapalı, autocomplete site içinden `fetch`, "Açık Chrome'a bağlan (9222)" modu, ikinci 403'te ilçeyi atla (ayrıntı yukarıda). Ekteki `ViewportSize = null` .NET'te sabit 1280×720 demek olduğundan niyete uygun `ViewportSize.NoViewport` kullanıldı.
+Doğrulama (Redfin'e hiç istek atılmadan): Chrome 153 açılıyor ve `navigator.webdriver` undefined; 9222 kapalıyken doğru mesaj; 9222 modunda yeni sekme açılıp kapanıyor, kullanıcının Chrome'u açık kalıyor; Playwright route ile redfin.com istekleri sahte yanıtlarla karşılanarak tüm akış uçtan uca çalıştı (ana sayfa → autocomplete `fetch` → liste, gis sayfanın kendi `fetch`'inden yakalandı → 5 aday → fiyat geçmişi → 152 Nicholas Pkwy E, 2 indirim, 40.000, son satış 2022-01-14 / 500.000).
+Test projesi depoda değil (geçiciydi); gerekirse ana csproj'a `<Compile Remove="tests/**" />` ekleyip `tests/` altına alınabilir.
+
 ## Açık konular
-- **Canlı Redfin çalıştırması hiç yapılmadı.** Kabul testi: Florida → Lee County satırını seç, "Müstakil ev", Bant `200-450`, "Ev kartlarını topla". Beklenen: 152 Nicholas Pkwy E, Cape Coral (listed 2026-06-03 / 439.900, indirimler 06-25 → 419.900, 08-04 → 399.900, son satış 2022-01-14 / 500.000). İlan kalkmışsa başka bir ev çıkması normal; cutCount ≥ 2 ve days ≥ 90 olmalı.
+- **Canlı Redfin çalıştırması hiç yapılmadı**; Claude ilan toplayıcıyı Redfin'e karşı kendisi çalıştırmaz, kabul testini kullanıcı yapar. Kabul testi: Florida → Lee County satırını seç, "Müstakil ev", Bant `200-450`, "Ev kartlarını topla" (403 sürerse "Açık Chrome'a bağlan (9222)" ile). Beklenen: 152 Nicholas Pkwy E, Cape Coral (listed 2026-06-03 / 439.900, indirimler 06-25 → 419.900, 08-04 → 399.900, son satış 2022-01-14 / 500.000). İlan kalkmışsa başka bir ev çıkması normal; cutCount ≥ 2 ve days ≥ 90 olmalı.
 - Ayrıştırma md'deki Redfin alan adlarına dayanıyor; Redfin yapı değiştirirse ilk bakılacak yer `ReadHomes`, `ReadEvents`, `EmbeddedBlocks` ve `FindRegionAsync`.
-- Redfin, Claude'un tarayıcısından istekleri CloudFront 403 ile engelledi; engel algılama bunu tanır ama engelin aşılmaya çalışılmaması gerekir.
 - Okuma uyarısı md'deki gibi "az ilanlı county" diyor; arayüz geri kalanında "ilçe" kullanıyor (kullanıcı isterse değiştirilecek).

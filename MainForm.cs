@@ -308,7 +308,7 @@ public partial class MainForm : Form
     void SetBusy(bool busy)
     {
         _btnFetch.Enabled = !busy; _btnLoad.Enabled = !busy; _cbState.Enabled = !busy; _btnRedfin.Enabled = !busy;
-        _btnAttachRedfin.Enabled = !busy; _btnHouseCards.Enabled = !busy; _cbHouseMode.Enabled = !busy; _txtBand.Enabled = !busy;
+        _btnAttachRedfin.Enabled = !busy; _btnHouseCards.Enabled = !busy; _cbHouseMode.Enabled = !busy; _txtBand.Enabled = !busy; _chkCdp.Enabled = !busy;
         _btnCancel.Enabled = busy;
         if (!busy) _progress.Value = 0;
     }
@@ -335,10 +335,16 @@ public partial class MainForm : Form
         bool condo = _cbHouseMode.SelectedIndex == 1;
         var modeName = condo ? "Daire" : "Müstakil ev";
         var bandText = band is { } b ? $"bant {b.Min / 1000}k-{b.Max / 1000}k" : "bant ilçe medyan liste fiyatının %60-115'i";
-        var chromium = RedfinListingPicker.ChromiumInstalled() ? "" : "\n\nİlk kullanım: Playwright Chromium tarayıcısı indirilecek (1-2 dk).";
+        bool cdp = _chkCdp.Checked;
+        var browser = cdp
+            ? "Açık Chrome'a (9222) bağlanılır ve yeni bir sekmede çalışılır; Redfin'i o Chrome'da bir kez elle açmış ol."
+            : RedfinListingPicker.ChromePath() != null
+                ? "Redfin kurulu Google Chrome'da, ayrı bir profille açılır; bitene kadar pencereyi kapatma."
+                : "Google Chrome bulunamadı; Playwright Chromium kullanılır" +
+                  (RedfinListingPicker.ChromiumInstalled() ? "." : " (ilk kullanımda indirilir, 1-2 dk).");
         if (MessageBox.Show($"{targets.Count} ilçe için ev kartı toplanacak ({modeName}, {bandText}).\n" +
-                            "Redfin görünür bir tarayıcı penceresinde açılır; bitene kadar pencereyi kapatma. İlçe başına ~1-2 dk." +
-                            $"{chromium}\nBaşlasın mı?", "Ev kartları", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                            $"{browser} İlçe başına ~1-2 dk.\nBaşlasın mı?",
+                            "Ev kartları", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
@@ -349,7 +355,7 @@ public partial class MainForm : Form
         using var log = new StreamWriter(logPath, true, Encoding.UTF8) { AutoFlush = true };
         var logLock = new object();
         void Log(string line) { lock (logLock) log.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {line}"); }
-        Log($"--- {state}, {targets.Count} ilçe, {modeName}, {bandText}");
+        Log($"--- {state}, {targets.Count} ilçe, {modeName}, {bandText}{(cdp ? ", açık Chrome (9222)" : "")}");
 
         int done = 0, found = 0;
         _progress.Maximum = targets.Count;
@@ -357,8 +363,8 @@ public partial class MainForm : Form
         RedfinListingPicker? picker = null;
         try
         {
-            _status.Text = "Tarayıcı açılıyor...";
-            picker = await Task.Run(() => RedfinListingPicker.StartAsync(_baseDir, _outDir, Log, status), ct);
+            _status.Text = cdp ? $"Açık Chrome'a bağlanılıyor ({RedfinListingPicker.CdpEndpoint})..." : "Tarayıcı açılıyor...";
+            picker = await Task.Run(() => RedfinListingPicker.StartAsync(_baseDir, _outDir, cdp, Log, status), ct);
             foreach (var r in targets)
             {
                 ct.ThrowIfCancellationRequested();
@@ -388,6 +394,18 @@ public partial class MainForm : Form
             _status.Text = $"Ev kartları bitti: {found}/{targets.Count} ilçede ev seçildi. out\\listings_{state}.csv";
         }
         catch (OperationCanceledException) { _status.Text = $"İptal edildi ({done}/{targets.Count} ilçe kaydedildi)."; }
+        catch (RedfinListingPicker.ChromeNotReachableException ex)
+        {
+            _status.Text = "Açık Chrome bulunamadı (9222).";
+            if (RedfinListingPicker.ChromePath() == null)
+                MessageBox.Show(ex.Message, "Açık Chrome'a bağlan", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            else if (MessageBox.Show(ex.Message + "\n\nChrome'u bu ayarla şimdi başlatayım mı? Redfin açılınca sayfanın yüklendiğini gör, sonra \"Ev kartlarını topla\"ya yeniden bas.",
+                         "Açık Chrome'a bağlan", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+            {
+                RedfinListingPicker.StartDebugChrome();
+                _status.Text = "Chrome 9222 portuyla açıldı. Redfin yüklenince \"Ev kartlarını topla\"ya yeniden bas.";
+            }
+        }
         catch (Exception ex)
         {
             Log("Durdu: " + ex.Message);
