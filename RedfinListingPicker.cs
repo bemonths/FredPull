@@ -418,10 +418,11 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     static List<HouseCandidate> PickCandidates(IEnumerable<HouseCandidate> homes, bool condo, int min, int max)
     {
         int type = condo ? 3 : 6;
-        int maxYear = DateTime.Today.Year - 2;     // müteahhit stoku elensin
+        int maxYear = DateTime.Today.Year - 3;     // müteahhit stoku elensin
         return homes
             .Where(h => h.PropertyType == type && h.DaysOnRedfin >= 90 && h.Beds is >= 2
                         && !h.IsNewConstruction && h.YearBuilt is int y && y <= maxYear
+                        && !$" {h.Street} ".Contains(" Lot ", StringComparison.OrdinalIgnoreCase)    // arsa/parsel ilanı
                         && h.Price >= min && h.Price <= max
                         && (h.MlsStatus.Length == 0 || h.MlsStatus.Equals("Active", StringComparison.OrdinalIgnoreCase)))
             .OrderByDescending(h => h.DaysOnRedfin)
@@ -545,11 +546,20 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         if (relist.Price == null && !ReferenceEquals(relist, listed) && c.Price > 0 && !changes.Any(e => e.Date >= relist.Date))
             c.CurrentPrice = c.Price;
         c.Cuts = new();
+        c.RaisedAfterCuts = false; c.RaisedFrom = null; c.RaisedTo = null; c.RaisedDate = null;
         int? prev = listed.Price;
         foreach (var e in changes)
         {
             // 1.000 $'dan küçük düşüş indirim sayılmaz (430.000 → 429.999 gibi ilanı öne çıkarmak için yapılan değişiklik)
             if (prev.HasValue && prev - e.Price >= MinCut) c.Cuts.Add(new PriceCut(e.Date, e.Price!.Value));
+            // İndirimlerden sonra gelen artış (1.000 $ ve üstü): satıcı fiyatı geri çekmiş; son artış tutulur
+            else if (prev.HasValue && e.Price - prev >= MinCut && c.Cuts.Count > 0)
+            {
+                c.RaisedAfterCuts = true;
+                c.RaisedFrom = prev;
+                c.RaisedTo = e.Price;
+                c.RaisedDate = e.Date;
+            }
             prev = e.Price;
         }
 
@@ -578,23 +588,36 @@ public sealed class RedfinListingPicker : IAsyncDisposable
             e.Description.Contains("Expired", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// 2+ indirim (indirim, sonra gün azalan), yoksa 1 indirim + 120 gün. İndirimlerden sonra fiyatı artırılan ev
+    /// en sona atılır: yalnızca başka uygun aday yoksa seçilir.
     static HouseCandidate? Choose(List<HouseCandidate> candidates)
     {
         var ok = candidates.Where(c => c.HasHistory && c.OriginalPrice.HasValue && c.CurrentPrice.HasValue).ToList();
-        return ok.Where(c => c.Cuts.Count >= 2).OrderByDescending(c => c.Cuts.Count).ThenByDescending(c => c.Days).FirstOrDefault()
-            ?? ok.Where(c => c.Cuts.Count >= 1 && c.Days >= 120).OrderByDescending(c => c.Days).FirstOrDefault();
+        static HouseCandidate? Pick(IEnumerable<HouseCandidate> cs) =>
+            cs.Where(c => c.Cuts.Count >= 2).OrderByDescending(c => c.Cuts.Count).ThenByDescending(c => c.Days).FirstOrDefault()
+            ?? cs.Where(c => c.Cuts.Count >= 1 && c.Days >= 120).OrderByDescending(c => c.Days).FirstOrDefault();
+        return Pick(ok.Where(c => !c.RaisedAfterCuts)) ?? Pick(ok.Where(c => c.RaisedAfterCuts));
     }
 
     // ---------- A6: kart metni ----------
 
     /// "Cape Coral: 3 Haziran'da 439.900 $'a çıktı, 2 indirimle 399.900 $, 112 gündür satılık; sahibi Ocak 2022'de 500.000 $'a almıştı."
+    /// İndirimlerden sonra artış varsa: "..., 6 indirimle 505.000 $'a indi, sonra 600.000 $'a çıkarıldı, 400 gündür satılık..."
+    /// (artıştan sonra fiyat yine değiştiyse ", şimdi X $" eklenir).
     public static string CardText(HouseCandidate c)
     {
         var d = c.ListedDate!.Value;
         var when = d.Year == DateTime.Today.Year
             ? $"{d.Day} {Analyzer.MonthNames[d.Month - 1]}'{MonthSuffix[d.Month - 1]}"
             : $"{d.Day} {Analyzer.MonthNames[d.Month - 1]} {d.Year}'{YearSuffix(d.Year)}";
-        var sb = new StringBuilder($"{c.City}: {when} {Usd(c.OriginalPrice)} $'a çıktı, {c.Cuts.Count} indirimle {Usd(c.CurrentPrice)} $, {c.Days} gündür satılık");
+        var sb = new StringBuilder($"{c.City}: {when} {Usd(c.OriginalPrice)} $'a çıktı, ");
+        if (c.RaisedAfterCuts && c.RaisedDate is DateOnly rd)
+        {
+            sb.Append($"{c.Cuts.Count(x => x.Date <= rd)} indirimle {Usd(c.RaisedFrom)} $'a indi, sonra {Usd(c.RaisedTo)} $'a çıkarıldı");
+            if (c.CurrentPrice != c.RaisedTo) sb.Append($", şimdi {Usd(c.CurrentPrice)} $");
+        }
+        else sb.Append($"{c.Cuts.Count} indirimle {Usd(c.CurrentPrice)} $");
+        sb.Append($", {c.Days} gündür satılık");
         if (c.LastSaleDate is DateOnly s && c.LastSalePrice.HasValue)
             sb.Append($"; sahibi {Analyzer.MonthNames[s.Month - 1]} {s.Year}'{YearSuffix(s.Year)} {Usd(c.LastSalePrice)} $'a almıştı");
         return sb.Append('.').ToString();
@@ -643,14 +666,15 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         File.WriteAllText(Path.Combine(outDir, $"listings_{state}.json"), JsonSerializer.Serialize(list, JsonOpts), Encoding.UTF8);
 
         using var w = new StreamWriter(Path.Combine(outDir, $"listings_{state}.csv"), false, Encoding.UTF8);
-        w.WriteLine("fips,county,city,street,url,yearBuilt,sqft,beds,listedDate,originalPrice,currentPrice,cutCount,totalCut,days,lastSaleDate,lastSalePrice,previouslyWithdrawn,cardText");
+        // raisedAfterCuts/raisedTo sonradan eklendi; sıraya göre okuyanlar bozulmasın diye cardText'ten sonra
+        w.WriteLine("fips,county,city,street,url,yearBuilt,sqft,beds,listedDate,originalPrice,currentPrice,cutCount,totalCut,days,lastSaleDate,lastSalePrice,previouslyWithdrawn,cardText,raisedAfterCuts,raisedTo");
         foreach (var card in list)
         {
             if (card.Chosen is not { } h) continue;
             w.WriteLine(string.Join(",", card.Fips, Q(card.County), Q(h.City), Q(h.Street), h.Url, h.YearBuilt, h.SqFt,
                 h.Beds?.ToString("0.#", Inv), h.ListedDate?.ToString("yyyy-MM-dd", Inv), h.OriginalPrice, h.CurrentPrice,
                 h.Cuts.Count, h.TotalCut, h.Days, h.LastSaleDate?.ToString("yyyy-MM-dd", Inv), h.LastSalePrice,
-                h.PreviouslyWithdrawn ? "true" : "false", Q(card.CardText)));
+                h.PreviouslyWithdrawn ? "true" : "false", Q(card.CardText), h.RaisedAfterCuts ? "true" : "false", h.RaisedTo));
         }
     }
 

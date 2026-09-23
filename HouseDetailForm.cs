@@ -60,6 +60,13 @@ public partial class HouseDetailForm : Form
             row.Tag = a;
             if (chosen) row.DefaultCellStyle.Font = new Font(_gridCands.Font, FontStyle.Bold);
             if (a.Error != null) { row.DefaultCellStyle.ForeColor = Color.Gray; row.Cells[_cStreet.Index].ToolTipText = a.Error; }
+            if (a.RaisedAfterCuts)
+            {
+                var cell = row.Cells[_cCurrent.Index];
+                cell.Style.ForeColor = Color.FromArgb(200, 110, 0);
+                cell.ToolTipText = $"İndirimlerden sonra {a.RaisedDate?.ToString("yyyy-MM-dd", Inv)} tarihinde {RedfinListingPicker.Usd(a.RaisedFrom)} $'dan " +
+                                   $"{RedfinListingPicker.Usd(a.RaisedTo)} $'a çıkarıldı; seçimde en sona atılır.";
+            }
         }
 
         var target = _gridCands.Rows.Cast<DataGridViewRow>()
@@ -89,7 +96,9 @@ public partial class HouseDetailForm : Form
         ShowHistory(a);
         ShowChart(a);
         ShowPhotos(a);
-        _status.Text = a.Error != null ? $"{a.Street}: {a.Error}" : $"{a.Street}, {a.City} {a.Zip}";
+        _status.Text = a.Error != null ? $"{a.Street}: {a.Error}"
+            : a.RaisedAfterCuts ? $"{a.Street}, {a.City} {a.Zip} — indirimlerden sonra {RedfinListingPicker.Usd(a.RaisedTo)} $'a çıkarıldı (seçimde en sona atılır)"
+            : $"{a.Street}, {a.City} {a.Zip}";
     }
 
     void ShowHistory(HouseCandidate a)

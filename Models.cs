@@ -85,6 +85,10 @@ public class HouseCandidate
     public DateOnly? LastSaleDate { get; set; }
     public int? LastSalePrice { get; set; }
     public bool PreviouslyWithdrawn { get; set; }
+    public bool RaisedAfterCuts { get; set; }           // indirimlerden sonra fiyat yeniden artırılmış
+    public int? RaisedFrom { get; set; }                // artıştan hemen önceki (indirimlerle inilen) fiyat
+    public int? RaisedTo { get; set; }                  // artırılan fiyat (son artış)
+    public DateOnly? RaisedDate { get; set; }
     public string? Error { get; set; }
     public List<System.Text.Json.JsonElement>? RawHistory { get; set; }   // Redfin'in ham fiyat geçmişi (teşhis için)
 
