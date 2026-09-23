@@ -12,9 +12,22 @@ ABD ilçelerinin konut piyasasını iki kaynaktan okur ve her ilçe için tek ke
 4. "Redfin verisini indir": üç dosya, ilçe dosyası büyük (birkaç yüz MB), bir kez. exe yanındaki redfin klasörüne iner. Ayda bir yenile.
 5. Eyaleti seç, "Verileri çek". Florida: 69 × 6 = 414 FRED isteği ≈ 4 dk, sonra Redfin okuması 1-2 dk.
 
+Arayüz MainForm.Designer.cs'te; Visual Studio'da MainForm.cs'e çift tıkla (ya da Shift+F7) tasarımcı açılır. Davranış MainForm.cs'te.
+
+"Redfin'i mevcut sonuca ekle": FRED'i yeniden çekmeden, yüklü sonuca Redfin satış verisini ekler (önce "Redfin verisini indir").
+
 ## Tablo (10 sütun)
 İlçe · Sinyal · Skor · Satılık ev · Stok 2019'a göre % · Aylık stok · Satış Y/Y % · Fiyat zirveden % · Satış/Liste % · İndirim payı vs eyalet
 Skor 60+ kırmızı, 40-59 turuncu. Başlığa tıkla sıralanır, başlık üstünde bekle açıklama çıkar.
+"Küçük taban" (satılık ev < 300 ya da aylık satış < 40) gri yazılır ve en alta iner; skor korunur.
+Çoklu seçim açık: Ctrl/Shift ile birden fazla ilçe, Ctrl+A ile hepsi.
+
+## Ev kartları (Redfin ilanları)
+Her ilçe için "aylardır satılamayan tek bir ev" seçer. Tabloda ilçeleri seç, mod (Müstakil ev / Daire) ve isteğe bağlı bant (bin $, ör. 200-450; boş = ilçe medyan liste fiyatının %60-115'i) gir, "Ev kartlarını topla".
+- İlk basışta Playwright Chromium iner (1-2 dk). Redfin görünür bir tarayıcı penceresinde açılır; bitene kadar kapatma. Profil: exe yanındaki pw-profile.
+- Kural: ≥90 gün ilanda, yeni inşaat değil, en az 2 oda; en eski 5 aday içinden fiyat geçmişinde 2+ indirim alan (yoksa 1 indirim + 120 gün) seçilir.
+- Sonuç sağ panelin en üstünde "EV KARTI" olarak görünür; ranking_XX.csv'ye house_card sütunu eklenir.
+- Redfin engellerse ("Access Denied") 60 sn bekleyip bir kez daha dener, olmazsa ilçeyi atlar.
 
 ## Sağ panel
 Seçili ilçe için: okuma (3-5 cümle, sonunda "Sonuç"), ilçe / eyalet / ABD yan yana rakamlar, skor dökümü, tanımlar.
@@ -25,6 +38,9 @@ Grafik: seçili metrik; ilan süresi, indirim payı, aylık stok, satış/liste 
 - series\<fips>_<county>.csv — ilçe başına aylık FRED + Redfin serileri (grafik için)
 - cache_XX.json — önbellek, "Son sonucu yükle"
 - log.txt — FRED istek günlüğü
+- listings_XX.json / listings_XX.csv — ev kartları (seçilen ev + adaylar; csv'de cardText senaryo cümlesi). Yeni çalıştırmalar ilçe bazında birleşir.
+- redfin_regions.json — ilçe → Redfin county adresi önbelleği
+- log_listings.txt — ev kartı günlüğü
 
 ## Sorun giderme
 - Redfin eşleşen ilçe sayısı durum çubuğunda yazar; Redfin küçük ilçeleri yayınlamaz.

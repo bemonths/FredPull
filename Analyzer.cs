@@ -49,8 +49,9 @@ public static class Analyzer
         "Satış / liste %95 ve altı → +10, %97 ve altı → +5\n" +
         "Eşik aşılmayan ilçe 0 puan alır; 'Dengeli' sinyali verilir ve video konusu değildir.\n\n" +
         "SİNYAL\n" +
-        "Alıcı çekildi: satış düşüyor ve stok birikiyor. Satıcı çekiliyor: satılık ev ve yeni ilan birlikte azalıyor, fiyat düşüyor. " +
-        "Fiyat kırılıyor: satış sürüyor ama fiyat zirveden belirgin aşağıda. Sıcak: fiyat artıyor, stok az. Zayıflıyor: birkaç eşik aşılmış ama kırılma yok. Dengeli: ortalamaya yakın.";
+        "Alıcı çekildi: aylık stok 7+ ya da satış düşüyor ve stok birikiyor. Satıcı çekiliyor: satılık ev ve yeni ilan birlikte azalıyor, fiyat düşüyor. " +
+        "Fiyat kırılıyor: satış sürüyor ama fiyat zirveden belirgin aşağıda. Sıcak: fiyat artıyor, stok az. Zayıflıyor: birkaç eşik aşılmış ama kırılma yok. Dengeli: ortalamaya yakın. " +
+        "Küçük taban: satılık ev 300'ün ya da aylık satış 40'ın altında; yüzdeler güvenilmez, sıralamada en alta iner.";
 
     // ---------- seri yardımcıları ----------
 
@@ -175,6 +176,13 @@ public static class Analyzer
         ComputeScore(r);
         ComputeSignal(r);
         r.Reading = BuildReading(r, stShare, usShare);
+
+        // Az ilanlı ilçede yüzdeler birkaç evle oynar: skor kalır, sinyal ve sıralama düşer.
+        if (r.Active is < 300 || r.Sold is < 40)
+        {
+            r.Signal = "Küçük taban";
+            r.Reading += " Uyarı: az ilanlı county, yüzdeler güvenilmez.";
+        }
     }
 
     static void ComputeScore(CountyResult r)
@@ -218,7 +226,8 @@ public static class Analyzer
         double priceDrop = r.SalePriceFromPeak ?? r.ListPriceFromPeak ?? 0;
         bool stockHigh = (r.MonthsSupply ?? 0) >= 5 || (r.ActiveVs2019 ?? 0) >= 20 || (r.ActiveYoY ?? 0) >= 10;
 
-        if (salesYoY <= -10 && stockHigh) r.Signal = "Alıcı çekildi";
+        if ((r.MonthsSupply ?? 0) >= 7) r.Signal = "Alıcı çekildi";
+        else if (salesYoY <= -10 && stockHigh) r.Signal = "Alıcı çekildi";
         else if ((r.ActiveYoY ?? 0) <= -15 && (r.NewYoY ?? 0) <= -8 && priceYoY < 0) r.Signal = "Satıcı çekiliyor";
         else if (priceDrop <= -8 && salesYoY > -10) r.Signal = "Fiyat kırılıyor";
         else if (priceYoY >= 3 && (r.MonthsSupply ?? 0) < 3) r.Signal = "Sıcak";
@@ -273,12 +282,14 @@ public static class Analyzer
             sb.Append(". ");
         }
 
-        sb.Append(SignalSentence(r.Signal));
+        sb.Append(SignalSentence(r.Signal, r.SoldYoY ?? r.PendingYoY ?? 0));
         return sb.ToString();
     }
 
-    static string SignalSentence(string signal) => signal switch
+    static string SignalSentence(string signal, double salesYoY) => signal switch
     {
+        "Alıcı çekildi" when salesYoY > -10
+                            => "Sonuç: stok 7 aylık satışın üstünde; alıcı çekilmiş, piyasa alıcının elinde.",
         "Alıcı çekildi"     => "Sonuç: satış düşerken stok birikiyor; bu, alıcının çekildiği bir piyasa.",
         "Satıcı çekiliyor"  => "Sonuç: satılık ev ve yeni ilan birlikte azalırken fiyat düşüyor; evler satıldığı için değil, satıcılar ilanı çektiği için azalıyor.",
         "Fiyat kırılıyor"   => "Sonuç: satış hızı korunuyor ama fiyat zirveden belirgin aşağıda; alıcı var, geçen yılın fiyatını ödemiyor.",
@@ -289,7 +300,7 @@ public static class Analyzer
 
     public static string Signed(double? v) => v.HasValue ? v.Value.ToString("+0;-0;0", Inv) : "?";
 
-    static readonly string[] MonthNames = { "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık" };
+    public static readonly string[] MonthNames ={ "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık" };
     public static string MonthName(string yyyyMM)
     {
         if (yyyyMM.Length < 7 || !int.TryParse(yyyyMM.AsSpan(5, 2), out var m) || m < 1 || m > 12) return yyyyMM;

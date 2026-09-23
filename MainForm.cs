@@ -2,11 +2,11 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using ScottPlot.WinForms;
 
 namespace FredPull;
 
-public class MainForm : Form
+/// Arayüz MainForm.Designer.cs'te (Visual Studio tasarımcısı); burada davranış.
+public partial class MainForm : Form
 {
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = false };
@@ -17,85 +17,53 @@ public class MainForm : Form
     readonly string _catalogFile;
     readonly string _redfinDir;
 
-    // Üst çubuk
-    readonly ComboBox _cbState = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
-    readonly Label _lblCounties = new() { AutoSize = true, Margin = new Padding(6, 7, 4, 0), ForeColor = SystemColors.GrayText };
-    readonly TextBox _txtKey = new() { Width = 260, UseSystemPasswordChar = true };
-    readonly Button _btnFetch = new() { Text = "Verileri çek", AutoSize = true, Enabled = false };
-    readonly Button _btnCancel = new() { Text = "İptal", AutoSize = true, Enabled = false };
-    readonly Button _btnRedfin = new() { Text = "Redfin verisini indir", AutoSize = true };
-    readonly Label _lblRedfin = new() { AutoSize = true, Margin = new Padding(4, 7, 4, 0), ForeColor = SystemColors.GrayText };
-    readonly Button _btnLoad = new() { Text = "Son sonucu yükle", AutoSize = true };
-    readonly Button _btnOpenOut = new() { Text = "out klasörü", AutoSize = true };
-
-    // Sol: tablo
-    readonly DataGridView _grid = new()
-    {
-        Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false, AllowUserToDeleteRows = false,
-        AllowUserToResizeRows = false, RowHeadersVisible = false, MultiSelect = false,
-        SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-        AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells,
-        BackgroundColor = SystemColors.Window, BorderStyle = BorderStyle.None,
-    };
-
-    // Sağ: grafik + açıklama
-    readonly ComboBox _cbMetric = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240 };
-    readonly FormsPlot _plot = new() { Dock = DockStyle.Fill };
-    readonly RichTextBox _info = new()
-    {
-        Dock = DockStyle.Fill, ReadOnly = true, BorderStyle = BorderStyle.None,
-        Font = new Font("Consolas", 9.5f), BackColor = SystemColors.Control,
-    };
-    readonly SplitContainer _split = new() { Dock = DockStyle.Fill };
-
-    // Alt: durum
-    readonly ProgressBar _progress = new() { Dock = DockStyle.Fill };
-    readonly Label _status = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
-
     Dictionary<string, List<County>>? _catalog;
     Snapshot _snap = new();
+    Dictionary<string, HouseCard> _cards = new();   // fips -> ev kartı (out\listings_XX.json)
     CancellationTokenSource? _cts;
 
     public MainForm()
     {
+        InitializeComponent();
+
         _outDir = Path.Combine(_baseDir, "out");
         _keyFile = Path.Combine(_baseDir, "fred_api_key.txt");
         _catalogFile = Path.Combine(_baseDir, "counties_all.txt");
         _redfinDir = Path.Combine(_baseDir, "redfin");
 
-        Text = "FredPull — İlçe konut piyasası (Realtor.com/FRED + Redfin)";
-        Width = 1560; Height = 900; StartPosition = FormStartPosition.CenterScreen;
-        Font = new Font("Segoe UI", 9f);
-
-        BuildLayout();
-        BuildGridColumns();
-
         foreach (var m in Analyzer.Metrics) _cbMetric.Items.Add(m.Name);
         _cbMetric.SelectedIndex = 0;
+        _cbHouseMode.SelectedIndex = 0;
 
         foreach (var s in CountyCatalog.States.OrderBy(s => s.Name))
             _cbState.Items.Add(new StateItem(s.Abbr, s.Name));
         SelectState("FL");
+        // Eyalet seçildikten sonra bağlanır; yoksa açılışta önbellek iki kez yüklenir.
+        _cbState.SelectedIndexChanged += CbState_SelectedIndexChanged;
 
         if (File.Exists(_keyFile)) _txtKey.Text = File.ReadAllText(_keyFile).Trim();
         UpdateRedfinLabel();
 
-        _btnFetch.Click += BtnFetch_Click;
-        _btnRedfin.Click += BtnRedfin_Click;
-        _btnCancel.Click += (_, _) => _cts?.Cancel();
-        _btnLoad.Click += (_, _) => LoadCache(showMessage: true);
-        _btnOpenOut.Click += (_, _) => { Directory.CreateDirectory(_outDir); Process.Start("explorer.exe", _outDir); };
-        _cbMetric.SelectedIndexChanged += (_, _) => UpdatePlot();
-        _grid.SelectionChanged += (_, _) => UpdatePlot();
-        _cbState.SelectedIndexChanged += (_, _) => { UpdateCountyCount(); LoadCache(showMessage: false); };
-
         _info.Text = Analyzer.Glossary;
-        Load += async (_, _) =>
-        {
-            _split.SplitterDistance = (int)(_split.Width * 0.56);
-            await LoadCatalogAsync();
-            LoadCache(showMessage: false);
-        };
+    }
+
+    async void MainForm_Load(object? sender, EventArgs e)
+    {
+        _split.SplitterDistance = (int)(_split.Width * 0.56);
+        await LoadCatalogAsync();
+        LoadCache(showMessage: false);
+    }
+
+    void BtnCancel_Click(object? sender, EventArgs e) => _cts?.Cancel();
+    void BtnLoad_Click(object? sender, EventArgs e) => LoadCache(showMessage: true);
+    void CbMetric_SelectedIndexChanged(object? sender, EventArgs e) => UpdatePlot();
+    void Grid_CurrentCellChanged(object? sender, EventArgs e) => UpdatePlot();
+    void CbState_SelectedIndexChanged(object? sender, EventArgs e) { UpdateCountyCount(); LoadCache(showMessage: false); }
+
+    void BtnOpenOut_Click(object? sender, EventArgs e)
+    {
+        Directory.CreateDirectory(_outDir);
+        Process.Start("explorer.exe", _outDir);
     }
 
     sealed record StateItem(string Abbr, string Name)
@@ -109,76 +77,6 @@ public class MainForm : Form
     {
         for (int i = 0; i < _cbState.Items.Count; i++)
             if (_cbState.Items[i] is StateItem s && s.Abbr == abbr) { _cbState.SelectedIndex = i; return; }
-    }
-
-    // ---------- yerleşim ----------
-
-    void BuildLayout()
-    {
-        var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8, 6, 8, 2), WrapContents = false };
-        top.Controls.Add(Lbl("Eyalet:"));
-        top.Controls.Add(_cbState);
-        top.Controls.Add(_lblCounties);
-        top.Controls.Add(Lbl("FRED API anahtarı:"));
-        top.Controls.Add(_txtKey);
-        top.Controls.Add(_btnFetch);
-        top.Controls.Add(_btnCancel);
-        top.Controls.Add(_btnRedfin);
-        top.Controls.Add(_lblRedfin);
-        top.Controls.Add(_btnLoad);
-        top.Controls.Add(_btnOpenOut);
-
-        _split.Panel1.Controls.Add(_grid);
-
-        var right = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
-        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        right.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
-        right.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
-        var metricRow = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(4, 4, 4, 0), WrapContents = false };
-        metricRow.Controls.Add(Lbl("Grafik:"));
-        metricRow.Controls.Add(_cbMetric);
-        right.Controls.Add(metricRow, 0, 0);
-        right.Controls.Add(_plot, 0, 1);
-        right.Controls.Add(_info, 0, 2);
-        _split.Panel2.Controls.Add(right);
-
-        var bottom = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 24, ColumnCount = 2 };
-        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 280));
-        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        bottom.Controls.Add(_progress, 0, 0);
-        bottom.Controls.Add(_status, 1, 0);
-
-        Controls.Add(_split);
-        Controls.Add(top);
-        Controls.Add(bottom);
-    }
-
-    static Label Lbl(string text) => new() { Text = text, AutoSize = true, Margin = new Padding(10, 7, 4, 0) };
-
-    void BuildGridColumns()
-    {
-        _grid.Columns.Clear();
-        AddCol("Name", "İlçe", null, "Sayım Bürosu ilçe adı.");
-        AddCol("Signal", "Sinyal", null, "Programın tek kelimelik yorumu. Sağ panelde gerekçesi yazar.");
-        AddCol("Score", "Skor", "0", "0-100. Mutlak eşiklerden toplanan puan; yüksek = daha kırık piyasa. Döküm sağ panelde.");
-        AddCol("Active", "Satılık ev", "N0", "O ay ilanda olan ev sayısı.");
-        AddCol("ActiveVs2019", "Stok 2019'a göre %", "+0;-0;0", "Satılık ev sayısının pandemi öncesi 2019'un aynı ayına göre değişimi. Artı = normalden fazla stok.");
-        AddCol("MonthsSupply", "Aylık stok", "0.0", "Satılık ev / aylık satış (Redfin). 6+ alıcı piyasası, 3 altı satıcı piyasası.");
-        AddCol("SoldYoY", "Satış Y/Y %", "+0;-0;0", "Satılan ev sayısının geçen yıla göre değişimi (Redfin). Redfin yoksa sözleşmeye bağlanan ev kullanılır.");
-        AddCol("PriceFromPeak", "Fiyat zirveden %", "+0;-0;0", "Gerçekleşen satış fiyatının kendi zirvesine göre düşüşü (Redfin). Redfin yoksa istenen fiyat.");
-        AddCol("SaleToList", "Satış/Liste %", "0.0", "Ödenen fiyat, istenen fiyatın yüzde kaçı (Redfin).");
-        AddCol("CutVsState", "İndirim payı vs eyalet", "+0.0;-0.0;0.0", "Fiyat kıran satıcı payının eyalet ortalamasına göre puan farkı.");
-    }
-
-    void AddCol(string name, string header, string? fmt, string tip)
-    {
-        var c = new DataGridViewTextBoxColumn { Name = name, HeaderText = header, ToolTipText = tip, SortMode = DataGridViewColumnSortMode.Automatic };
-        if (fmt != null)
-        {
-            c.DefaultCellStyle.Format = fmt;
-            c.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
-        }
-        _grid.Columns.Add(c);
     }
 
     // ---------- katalog ----------
@@ -369,41 +267,221 @@ public class MainForm : Form
 
         int matched = 0;
         foreach (var r in snap.Counties)
-            if (byNorm.TryGetValue(RedfinLoader.NormalizeName(r.County.Name), out var series)) { r.Data.Redfin = series; matched++; }
+        {
+            // Eşleşmeyen ilçede eski Redfin serisi kalmasın (mevcut sonuca yeniden eklerken)
+            r.Data.Redfin = byNorm.TryGetValue(RedfinLoader.NormalizeName(r.County.Name), out var series) ? series : new();
+            if (r.Data.Redfin.Count > 0) matched++;
+        }
         progress.Report($"Redfin eşleşen ilçe: {matched}/{snap.Counties.Count}");
+    }
+
+    /// FRED'i yeniden çekmeden mevcut sonuca Redfin satış verisini ekler.
+    async void BtnAttachRedfin_Click(object? sender, EventArgs e)
+    {
+        if (_snap.Counties.Count == 0) { MessageBox.Show("Mevcut sonuç yok. Önce \"Verileri çek\" ya da \"Son sonucu yükle\".", "Sonuç yok"); return; }
+        if (!RedfinReady) { MessageBox.Show("Redfin dosyası yok. Önce \"Redfin verisini indir\".", "Redfin yok"); return; }
+
+        _cts = new CancellationTokenSource();
+        SetBusy(true);
+        var text = new Progress<string>(s => _status.Text = s);
+        try
+        {
+            var snap = _snap;
+            var ct = _cts.Token;
+            _status.Text = "Redfin dosyaları okunuyor (ilçe dosyası büyük, 1-2 dk)...";
+            await Task.Run(() => AttachRedfin(snap, text, ct), ct);
+            snap.HasRedfin = true;
+            foreach (var r in snap.Counties) Analyzer.Summarize(r, snap.StateData, snap.UsData);
+            FillGrid();
+            SaveOutputs();
+            _status.Text = $"Redfin mevcut sonuca eklendi: {snap.Counties.Count(r => r.RedfinMonth.Length > 0)}/{snap.Counties.Count} ilçe eşleşti. Çıktılar: {_outDir}";
+        }
+        catch (OperationCanceledException) { _status.Text = "İptal edildi."; }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Redfin ekleme hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _status.Text = "Hata: " + ex.Message;
+        }
+        finally { SetBusy(false); }
     }
 
     void SetBusy(bool busy)
     {
         _btnFetch.Enabled = !busy; _btnLoad.Enabled = !busy; _cbState.Enabled = !busy; _btnRedfin.Enabled = !busy;
+        _btnAttachRedfin.Enabled = !busy; _btnHouseCards.Enabled = !busy; _cbHouseMode.Enabled = !busy; _txtBand.Enabled = !busy;
         _btnCancel.Enabled = busy;
         if (!busy) _progress.Value = 0;
     }
 
+    // ---------- ev kartları (Redfin ilanları) ----------
+
+    async void BtnHouseCards_Click(object? sender, EventArgs e)
+    {
+        if (_snap.Counties.Count == 0) { MessageBox.Show("Mevcut sonuç yok. Önce \"Verileri çek\" ya da \"Son sonucu yükle\".", "Sonuç yok"); return; }
+        if (!TryParseBand(_txtBand.Text, out var band))
+        {
+            MessageBox.Show("Bant biçimi: 200-450 (bin $). Boş bırakılırsa ilçenin medyan liste fiyatından hesaplanır.", "Fiyat bandı");
+            return;
+        }
+
+        var targets = _grid.SelectedRows.Cast<DataGridViewRow>().OrderBy(row => row.Index).Select(row => row.Tag).OfType<CountyResult>().ToList();
+        if (targets.Count == 0)
+        {
+            if (MessageBox.Show($"Seçili ilçe yok. {_snap.Counties.Count} ilçenin tümü için ev kartı toplansın mı?", "Ev kartları",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            targets = _grid.Rows.Cast<DataGridViewRow>().Select(row => row.Tag).OfType<CountyResult>().ToList();
+        }
+
+        bool condo = _cbHouseMode.SelectedIndex == 1;
+        var modeName = condo ? "Daire" : "Müstakil ev";
+        var bandText = band is { } b ? $"bant {b.Min / 1000}k-{b.Max / 1000}k" : "bant ilçe medyan liste fiyatının %60-115'i";
+        var chromium = RedfinListingPicker.ChromiumInstalled() ? "" : "\n\nİlk kullanım: Playwright Chromium tarayıcısı indirilecek (1-2 dk).";
+        if (MessageBox.Show($"{targets.Count} ilçe için ev kartı toplanacak ({modeName}, {bandText}).\n" +
+                            "Redfin görünür bir tarayıcı penceresinde açılır; bitene kadar pencereyi kapatma. İlçe başına ~1-2 dk." +
+                            $"{chromium}\nBaşlasın mı?", "Ev kartları", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        SetBusy(true);
+        Directory.CreateDirectory(_outDir);
+        var state = _snap.State;
+        var logPath = Path.Combine(_outDir, "log_listings.txt");
+        using var log = new StreamWriter(logPath, true, Encoding.UTF8) { AutoFlush = true };
+        var logLock = new object();
+        void Log(string line) { lock (logLock) log.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {line}"); }
+        Log($"--- {state}, {targets.Count} ilçe, {modeName}, {bandText}");
+
+        int done = 0, found = 0;
+        _progress.Maximum = targets.Count;
+        var status = new Progress<string>(s => _status.Text = $"{Math.Min(done + 1, targets.Count)}/{targets.Count}  {s}");
+        RedfinListingPicker? picker = null;
+        try
+        {
+            _status.Text = "Tarayıcı açılıyor...";
+            picker = await Task.Run(() => RedfinListingPicker.StartAsync(_baseDir, _outDir, Log, status), ct);
+            foreach (var r in targets)
+            {
+                ct.ThrowIfCancellationRequested();
+                HouseCard card;
+                try
+                {
+                    card = await Task.Run(() => picker.CollectAsync(r.County, r.ListPrice, condo, band, status, ct), ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    if (picker.Closed) throw new InvalidOperationException("Tarayıcı penceresi kapatıldı; toplama durdu.");
+                    Log($"{r.County.Name}: atlandı — {ex.Message}");
+                    card = new HouseCard { Fips = r.County.Fips, County = r.County.Name, Mode = modeName, CreatedAt = DateTime.Now, Note = "hata: " + ex.Message };
+                }
+
+                // Hata aldıysa önceki başarılı kartın üstüne yazma
+                if (card.Chosen != null || !(_cards.TryGetValue(card.Fips, out var old) && old.Chosen != null))
+                    _cards[card.Fips] = card;
+                if (card.Chosen != null) found++;
+                Log($"{r.County.Name}: {(card.Chosen != null ? card.CardText : card.Note)}");
+                RedfinListingPicker.SaveListings(_outDir, state, _cards.Values);
+
+                done++;
+                _progress.Value = done;
+                if (Selected == r) UpdatePlot();
+            }
+            _status.Text = $"Ev kartları bitti: {found}/{targets.Count} ilçede ev seçildi. out\\listings_{state}.csv";
+        }
+        catch (OperationCanceledException) { _status.Text = $"İptal edildi ({done}/{targets.Count} ilçe kaydedildi)."; }
+        catch (Exception ex)
+        {
+            Log("Durdu: " + ex.Message);
+            MessageBox.Show(ex.Message + $"\n\nLog: {logPath}", "Ev kartları", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _status.Text = "Hata: " + ex.Message;
+        }
+        finally
+        {
+            if (picker != null) await Task.Run(() => picker.DisposeAsync().AsTask());
+            if (done > 0) SaveRanking();
+            SetBusy(false);
+        }
+    }
+
+    /// "200-450" → 200.000-450.000 $. Boş → null (otomatik).
+    static bool TryParseBand(string text, out (int Min, int Max)? band)
+    {
+        band = null;
+        var t = new string(text.Where(ch => char.IsDigit(ch) || ch == '-').ToArray());
+        if (t.Length == 0) return true;
+        var p = t.Split('-');
+        if (p.Length != 2 || !int.TryParse(p[0], out var min) || !int.TryParse(p[1], out var max) || min <= 0 || max <= min) return false;
+        band = (min * 1000, max * 1000);
+        return true;
+    }
+
+    static string CardSection(HouseCard c)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"EV KARTI — {c.Mode}, bant {c.MinPrice / 1000}k-{c.MaxPrice / 1000}k, {c.CreatedAt:dd.MM.yyyy}" +
+                      (c.ListCount > 0 ? $", listede {c.ListCount} ilan" : ""));
+        if (c.Chosen is { } h)
+        {
+            sb.AppendLine(Wrap(c.CardText, 110));
+            sb.AppendLine(h.Url);
+        }
+        else sb.AppendLine(c.Note);
+
+        if (c.Candidates.Count > 0)
+        {
+            sb.AppendLine("Adaylar:");
+            foreach (var a in c.Candidates)
+            {
+                var line = $"{(ReferenceEquals(a, c.Chosen) || a.Url == c.Chosen?.Url ? "*" : " ")} {Trunc($"{a.Street}, {a.City}", 34),-34}" +
+                           $"{RedfinListingPicker.Usd(a.CurrentPrice ?? a.Price),10} $ {(a.HasHistory ? a.Days : a.DaysOnRedfin),5} gün";
+                if (a.HasHistory)
+                {
+                    line += $"  {a.Cuts.Count} indirim";
+                    if (a.LastSalePrice.HasValue) line += $"  alış {a.LastSaleDate:yyyy-MM} {RedfinListingPicker.Usd(a.LastSalePrice)} $";
+                    if (a.PreviouslyWithdrawn) line += "  (önce çekilmiş)";
+                }
+                else if (a.Error != null) line += $"  ({a.Error})";
+                sb.AppendLine(line);
+            }
+        }
+        return sb.ToString();
+    }
+
+    static string Trunc(string s, int n) => s.Length > n ? s[..(n - 1)] + "…" : s;
+
     // ---------- tablo ----------
+
+    /// Sıralama: "Küçük taban" en alta, sonra skor azalan.
+    IEnumerable<CountyResult> Ranked() =>
+        _snap.Counties.OrderByDescending(r => r.Signal != "Küçük taban").ThenByDescending(r => r.Score).ThenBy(r => r.County.Name);
 
     void FillGrid()
     {
         _grid.SuspendLayout();
         _grid.Rows.Clear();
-        foreach (var r in _snap.Counties.OrderByDescending(r => r.Score).ThenBy(r => r.County.Name))
+        foreach (var r in Ranked())
         {
             int i = _grid.Rows.Add(r.County.Name, r.Signal, r.Score, V(r.Active), V(r.ActiveVs2019), V(r.MonthsSupply),
                 V(r.SoldYoY ?? r.PendingYoY), V(r.SalePriceFromPeak ?? r.ListPriceFromPeak), V(r.SaleToList), V(r.CutShareVsState));
             var row = _grid.Rows[i];
             row.Tag = r;
-            if (r.Score >= 60) row.DefaultCellStyle.BackColor = Color.FromArgb(255, 226, 226);
+            if (r.Signal == "Küçük taban")
+            {
+                row.DefaultCellStyle.ForeColor = Color.Gray;
+                row.DefaultCellStyle.BackColor = Color.White;
+            }
+            else if (r.Score >= 60) row.DefaultCellStyle.BackColor = Color.FromArgb(255, 226, 226);
             else if (r.Score >= 40) row.DefaultCellStyle.BackColor = Color.FromArgb(255, 241, 214);
-            row.Cells["Signal"].Style.ForeColor = SignalColor(r.Signal);
-            row.Cells["Signal"].Style.Font = new Font(_grid.Font, FontStyle.Bold);
+            row.Cells[_colSignal.Index].Style.ForeColor = SignalColor(r.Signal);
+            row.Cells[_colSignal.Index].Style.Font = new Font(_grid.Font, FontStyle.Bold);
         }
         _grid.ResumeLayout();
-        if (_grid.Rows.Count > 0) { _grid.ClearSelection(); _grid.Rows[0].Selected = true; }
+        if (_grid.Rows.Count > 0) { _grid.ClearSelection(); _grid.CurrentCell = _grid.Rows[0].Cells[0]; _grid.Rows[0].Selected = true; }
         UpdatePlot();
     }
 
     static Color SignalColor(string s) => s switch
     {
+        "Küçük taban" => Color.Gray,
         "Alıcı çekildi" => Color.FromArgb(180, 20, 20),
         "Satıcı çekiliyor" => Color.FromArgb(160, 60, 0),
         "Fiyat kırılıyor" => Color.FromArgb(150, 90, 0),
@@ -416,7 +494,8 @@ public class MainForm : Form
 
     // ---------- grafik + panel ----------
 
-    CountyResult? Selected => _grid.SelectedRows.Count > 0 ? _grid.SelectedRows[0].Tag as CountyResult : null;
+    /// Panelde gösterilen ilçe: odaktaki satır (çoklu seçimde son tıklanan).
+    CountyResult? Selected => _grid.CurrentRow?.Tag as CountyResult;
 
     void UpdatePlot()
     {
@@ -494,6 +573,11 @@ public class MainForm : Form
         var stName = StateName(_snap.State);
 
         var sb = new StringBuilder();
+        if (_cards.TryGetValue(r.County.Fips, out var card))
+        {
+            sb.Append(CardSection(card));
+            sb.AppendLine();
+        }
         sb.AppendLine($"{r.County.Name.ToUpperInvariant()}, {r.County.State}   Veri: {Analyzer.MonthName(r.Month)}{(ro.HasValue ? $" (Redfin {Analyzer.MonthName(r.RedfinMonth)})" : "")}");
         sb.AppendLine($"Sinyal: {r.Signal}   Skor: {r.Score}/100");
         sb.AppendLine();
@@ -572,17 +656,7 @@ public class MainForm : Form
     {
         var state = _snap.State;
         Directory.CreateDirectory(Path.Combine(_outDir, "series"));
-
-        using (var w = new StreamWriter(Path.Combine(_outDir, $"ranking_{state}.csv"), false, Encoding.UTF8))
-        {
-            w.WriteLine("rank,score,signal,fips,county,month,redfin_month,active,active_yoy_pct,active_vs2019_pct,new_yoy_pct,pending_yoy_pct,dom,dom_yoy_days,cut_share_pct,cut_vs_state_pp,cut_vs_us_pp,list_price,list_price_yoy_pct,list_from_peak_pct,sold,sold_yoy_pct,sale_price,sale_price_yoy_pct,sale_from_peak_pct,sale_to_list_pct,months_supply,reading");
-            int rank = 1;
-            foreach (var r in _snap.Counties.OrderByDescending(r => r.Score).ThenBy(r => r.County.Name))
-                w.WriteLine(string.Join(",", rank++, r.Score, Q(r.Signal), r.County.Fips, Q(r.County.Name), r.Month, r.RedfinMonth,
-                    N(r.Active), N(r.ActiveYoY), N(r.ActiveVs2019), N(r.NewYoY), N(r.PendingYoY), N(r.Dom), N(r.DomYoY),
-                    N(r.CutShare), N(r.CutShareVsState), N(r.CutShareVsUs), N(r.ListPrice), N(r.ListPriceYoY), N(r.ListPriceFromPeak),
-                    N(r.Sold), N(r.SoldYoY), N(r.SalePrice), N(r.SalePriceYoY), N(r.SalePriceFromPeak), N(r.SaleToList), N(r.MonthsSupply), Q(r.Reading)));
-        }
+        SaveRanking();
 
         foreach (var r in _snap.Counties)
         {
@@ -599,9 +673,24 @@ public class MainForm : Form
         File.WriteAllText(CachePath(state), JsonSerializer.Serialize(_snap, JsonOpts));
     }
 
+    void SaveRanking()
+    {
+        Directory.CreateDirectory(_outDir);
+        using var w = new StreamWriter(Path.Combine(_outDir, $"ranking_{_snap.State}.csv"), false, Encoding.UTF8);
+        w.WriteLine("rank,score,signal,fips,county,month,redfin_month,active,active_yoy_pct,active_vs2019_pct,new_yoy_pct,pending_yoy_pct,dom,dom_yoy_days,cut_share_pct,cut_vs_state_pp,cut_vs_us_pp,list_price,list_price_yoy_pct,list_from_peak_pct,sold,sold_yoy_pct,sale_price,sale_price_yoy_pct,sale_from_peak_pct,sale_to_list_pct,months_supply,reading,house_card");
+        int rank = 1;
+        foreach (var r in Ranked())
+            w.WriteLine(string.Join(",", rank++, r.Score, Q(r.Signal), r.County.Fips, Q(r.County.Name), r.Month, r.RedfinMonth,
+                N(r.Active), N(r.ActiveYoY), N(r.ActiveVs2019), N(r.NewYoY), N(r.PendingYoY), N(r.Dom), N(r.DomYoY),
+                N(r.CutShare), N(r.CutShareVsState), N(r.CutShareVsUs), N(r.ListPrice), N(r.ListPriceYoY), N(r.ListPriceFromPeak),
+                N(r.Sold), N(r.SoldYoY), N(r.SalePrice), N(r.SalePriceYoY), N(r.SalePriceFromPeak), N(r.SaleToList), N(r.MonthsSupply), Q(r.Reading),
+                Q(_cards.TryGetValue(r.County.Fips, out var card) ? card.CardText : "")));
+    }
+
     void LoadCache(bool showMessage)
     {
         var path = CachePath(SelectedAbbr);
+        _cards = RedfinListingPicker.LoadListings(_outDir, SelectedAbbr);
         if (!File.Exists(path))
         {
             _snap = new Snapshot { State = SelectedAbbr };

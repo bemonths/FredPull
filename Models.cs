@@ -55,6 +55,58 @@ public class CountyResult
     public string Reading { get; set; } = "";
 }
 
+public record PriceCut(DateOnly Date, int Price);
+
+/// Redfin ilanı: liste sayfasındaki alanlar + ilan sayfasındaki fiyat geçmişinden hesaplananlar.
+public class HouseCandidate
+{
+    public string Url { get; set; } = "";
+    public string Street { get; set; } = "";
+    public string City { get; set; } = "";
+    public string State { get; set; } = "";
+    public string Zip { get; set; } = "";
+    public int Price { get; set; }                  // liste sayfasındaki güncel fiyat
+    public int DaysOnRedfin { get; set; }           // timeOnRedfin / 86 400 000
+    public int PropertyType { get; set; }           // 6 müstakil, 3 daire, 13 townhouse
+    public bool IsNewConstruction { get; set; }
+    public string MlsStatus { get; set; } = "";
+    public int? YearBuilt { get; set; }
+    public int? SqFt { get; set; }
+    public double? Beds { get; set; }
+    public double? Baths { get; set; }
+
+    // Fiyat geçmişi (ilan sayfası)
+    public bool HasHistory { get; set; }
+    public DateOnly? ListedDate { get; set; }
+    public int? OriginalPrice { get; set; }
+    public int? CurrentPrice { get; set; }
+    public List<PriceCut> Cuts { get; set; } = new();   // eski → yeni
+    public int Days { get; set; }                       // bugün − ListedDate
+    public DateOnly? LastSaleDate { get; set; }
+    public int? LastSalePrice { get; set; }
+    public bool PreviouslyWithdrawn { get; set; }
+    public string? Error { get; set; }
+
+    public int TotalCut => (OriginalPrice ?? 0) - (CurrentPrice ?? 0);
+}
+
+/// Bir ilçe için seçilen ev + adaylar; out\listings_XX.json içinde ilçe başına bir kayıt.
+public class HouseCard
+{
+    public string Fips { get; set; } = "";
+    public string County { get; set; } = "";
+    public string Mode { get; set; } = "";          // "Müstakil ev" / "Daire"
+    public DateTime CreatedAt { get; set; }
+    public int MinPrice { get; set; }
+    public int MaxPrice { get; set; }
+    public string ListUrl { get; set; } = "";
+    public int ListCount { get; set; }              // liste sayfasından gelen ilan sayısı
+    public List<HouseCandidate> Candidates { get; set; } = new();
+    public HouseCandidate? Chosen { get; set; }
+    public string CardText { get; set; } = "";
+    public string Note { get; set; } = "";          // seçim yoksa neden
+}
+
 /// Bir eyaletin bütün çekilmiş verisi; out\cache_XX.json olarak saklanır.
 public class Snapshot
 {
