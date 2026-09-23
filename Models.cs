@@ -88,6 +88,13 @@ public class HouseCandidate
     public string? Error { get; set; }
     public List<System.Text.Json.JsonElement>? RawHistory { get; set; }   // Redfin'in ham fiyat geçmişi (teşhis için)
 
+    // Konum ve medya (liste ya da ilan sayfasından; eski kayıtlarda boş)
+    public double? Lat { get; set; }
+    public double? Lng { get; set; }
+    public List<PriceCut> PriceSteps { get; set; } = new();   // mevcut ilanın fiyat adımları: ilk fiyat + her değişiklik (animasyon)
+    public List<string> PhotoUrls { get; set; } = new();      // ilan sayfasındaki fotoğraf adresleri
+    public List<string> PhotoPaths { get; set; } = new();     // indirilen referans fotoğraflar, out klasörüne göre göreli
+
     public int TotalCut => (OriginalPrice ?? 0) - (CurrentPrice ?? 0);
 }
 

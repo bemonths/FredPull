@@ -55,6 +55,7 @@ namespace FredPull
             _txtBand = new TextBox();
             _chkCdp = new CheckBox();
             _btnHouseCards = new Button();
+            _btnHouseDetail = new Button();
             _split = new SplitContainer();
             _grid = new DataGridView();
             _colName = new DataGridViewTextBoxColumn();
@@ -108,6 +109,7 @@ namespace FredPull
             _top.Controls.Add(_txtBand);
             _top.Controls.Add(_chkCdp);
             _top.Controls.Add(_btnHouseCards);
+            _top.Controls.Add(_btnHouseDetail);
             _top.Dock = DockStyle.Top;
             _top.Location = new Point(0, 0);
             _top.Name = "_top";
@@ -301,6 +303,17 @@ namespace FredPull
             _btnHouseCards.UseVisualStyleBackColor = true;
             _btnHouseCards.Click += BtnHouseCards_Click;
             //
+            // _btnHouseDetail
+            //
+            _btnHouseDetail.AutoSize = true;
+            _btnHouseDetail.Location = new Point(1091, 40);
+            _btnHouseDetail.Name = "_btnHouseDetail";
+            _btnHouseDetail.Size = new Size(90, 25);
+            _btnHouseDetail.TabIndex = 18;
+            _btnHouseDetail.Text = "Ev detayları";
+            _btnHouseDetail.UseVisualStyleBackColor = true;
+            _btnHouseDetail.Click += BtnHouseDetail_Click;
+            //
             // _split
             //
             _split.Dock = DockStyle.Fill;
@@ -337,6 +350,7 @@ namespace FredPull
             _grid.Size = new Size(864, 767);
             _grid.TabIndex = 0;
             _grid.CurrentCellChanged += Grid_CurrentCellChanged;
+            _grid.CellDoubleClick += Grid_CellDoubleClick;
             //
             // _colName
             //
@@ -584,6 +598,7 @@ namespace FredPull
         private TextBox _txtBand;
         private CheckBox _chkCdp;
         private Button _btnHouseCards;
+        private Button _btnHouseDetail;
 
         // Sol: tablo
         private SplitContainer _split;

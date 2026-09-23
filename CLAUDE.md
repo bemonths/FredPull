@@ -27,15 +27,18 @@ ABD ilçelerinin (county) konut piyasasını iki kaynaktan okuyup her ilçe içi
 | `Models.cs` | `County`, `Obs`, `SeriesSet`, `CountyResult`, `Snapshot`, `HouseCandidate`, `HouseCard`, `PriceCut`. |
 | `FredClient.cs` | FRED API (2 paralel istek, ~109/dk, 5 deneme). |
 | `RedfinLoader.cs` | Redfin market tracker dosyalarını indirir ve ayrıştırır; ilçe adı normalleştirme (`NormalizeName`). |
-| `RedfinListingPicker.cs` | Playwright ile Redfin ilan toplayıcısı (ev kartları), listings dosyaları. |
+| `RedfinListingPicker.cs` | Playwright ile Redfin ilan toplayıcısı (ev kartları), listings dosyaları, ilan sayfasından konum/fotoğraf adresi. |
+| `HouseDetailForm.cs` / `.Designer.cs` | Ev detay formu: adaylar, fiyat geçmişi + grafik, referans fotoğraflar, elle seçim, dışa aktarımlar. |
+| `ListingExports.cs` | Referans fotoğraf indirme, Google Earth Studio KML'i, animasyon CSV'leri. |
 | `CountyCatalog.cs` | Eyalet listesi, Sayım Bürosu ilçe/FIPS kataloğu, Florida yedeği. |
 | `FredPull_CLAUDE_CODE_TASK.md` | 2026-09-23'te uygulanan görev tanımı (tarihsel kayıt). |
 | `FredPull_TASK_EK_Redfin403.md` | Aynı gün uygulanan ek: Redfin 403'e karşı tarayıcı ayarları (tarihsel kayıt). |
+| `FredPull_TASK_EK_EvDetay.md` | 2026-09-24 eki: ev detay formu ve materyal dışa aktarma (tarihsel kayıt). |
 
 ## Arayüz
 Üst çubuk iki satır:
 1. Eyalet · ilçe sayısı · FRED API anahtarı · **Verileri çek** · İptal · Son sonucu yükle · out klasörü
-2. Redfin verisini indir · Redfin tarihi · **Redfin'i mevcut sonuca ekle** · Ev kartı: [Müstakil ev / Daire] · Bant (bin $) · ☐ Açık Chrome'a bağlan (9222) · **Ev kartlarını topla**
+2. Redfin verisini indir · Redfin tarihi · **Redfin'i mevcut sonuca ekle** · Ev kartı: [Müstakil ev / Daire] · Bant (bin $) · ☐ Açık Chrome'a bağlan (9222) · **Ev kartlarını topla** · **Ev detayları**
 
 Sol: 10 sütunlu tablo (çoklu seçim açık; Ctrl/Shift, Ctrl+A). Sağ: metrik grafiği (ScottPlot) + bilgi metni. Bilgi metni odaktaki satırı (`CurrentRow`) gösterir; ilçenin ev kartı varsa en üstte "EV KARTI" bölümü çıkar.
 
@@ -70,13 +73,24 @@ Seçili satırlar için (seçim yoksa hepsini sorar) sırayla çalışır; tek g
 
 Sonuç dosyaları çalıştırmalar arasında **ilçe bazında birleşir** (Miami-Dade'i ayrıca Daire modunda çalıştırmak diğerlerini silmez). Hata alan çalıştırma, önceki başarılı kartın üstüne yazmaz.
 
+## Ev detay formu (`HouseDetailForm`)
+Tabloda satıra çift tık ya da "Ev detayları" → o ilçenin kartı (modal değil; farklı ilçeler için birden fazla, aynı ilçe ikinci kez açılmaz, öne gelir). Kart her seferinde ana formun `Cards` sözlüğünden okunur; ana formda eyalet değişirse form "kart bulunamadı" der.
+- Üst: ilçe/mod/bant/tarih, kart metni + ilan adresi (kopyalanabilir). Sol: 17 sütunlu aday tablosu (✓ seçilen, m² = sqft × 0,0929). Sağ üst sekmeler: **Fiyat geçmişi** (ham tarihçenin tamamı; kalın = mevcut ilan, gri = kira, Fark = bir önceki istenen fiyata göre) ve **Grafik** (istenen fiyatın merdiven çizgisi, alış fiyatı kesikli çizgi). Sağ alt: 160x120 küçük resimler, tıklanınca büyük önizleme.
+- Düğmeler: Redfin'de aç · Haritada aç (Google Maps) · **Bu evi seç** (Chosen + CardText yeniden, listings + ranking kaydedilir, ana panel yenilenir; fiyat geçmişi okunamamış aday seçilemez) · Kartı kopyala · **Fotoğrafları indir (referans)** · Klasörde göster (`explorer /select`) · **KML dışa aktar** · **Animasyon CSV**.
+- Tarayıcı gerektiren işler (eski kartlarda ilan sayfasını açmak) ana form meşgulken yapılmaz (aynı Chrome profili kilitli olur); `MainForm.BeginWork/EndWork` ile ana form meşgul olur, ana "İptal" bu işi de durdurur. Log `MainForm.LogListings` (toplama sürerken açık yazıcıyı kullanır).
+- **Konum ve fotoğraf adresleri toplama sırasında alınır**: liste sayfasındaki `latLong.value.latitude/longitude`, yoksa ilan sayfasının `place:location` meta etiketleri ya da ilk latitude/longitude; fotoğraflar ilan sayfasındaki `ssl.cdn-redfin.com/photo/...` adresleri — `og:image`'daki ilan numarasıyla süzülür ("benzer evler" fotoğrafları elenir), büyük boy (`bigphoto`) tercih edilir, sıra numarasına göre dizilir. Böylece fotoğraf indirmek için sayfa tekrar açılmaz; görüntüler CDN'den `HttpClient` ile iner (en çok 12, `out\photos\{ST}\{fips}_{sokak}\01.jpg`, yanında `REFERANS.txt`: "Emlakçı/MLS telifli; videoda kullanılmaz, yalnızca referans."). Bu alanlardan önce toplanmış kartlarda "Fotoğrafları indir" ilan sayfasını açıp tamamlar (`EnrichAsync`); KML de koordinatı eksik seçilmiş evler için tamamlamayı önerir.
+- JSON'dan okunan kartta `Chosen` adaylardaki aynı nesneye bağlanır (`LoadListings`), yoksa sonradan eklenen konum/fotoğraf seçilen evde görünmezdi.
+
 ## Çıktılar (`out\`)
 - `ranking_XX.csv` — tüm sütunlar + `reading` + `house_card`
 - `series\<fips>_<ilçe>.csv` — ilçe başına aylık seriler
 - `cache_XX.json` — önbellek ("Son sonucu yükle")
 - `listings_XX.json` — ilçe başına seçilen ev + tüm adaylar
 - `listings_XX.csv` — fips, county, city, street, url, yearBuilt, sqft, beds, listedDate, originalPrice, currentPrice, cutCount, totalCut, days, lastSaleDate, lastSalePrice, previouslyWithdrawn, cardText (yalnızca ev seçilen ilçeler)
-- `redfin_regions.json`, `log.txt` (FRED), `log_listings.txt` (ev kartları)
+- `redfin_regions.json`, `log.txt` (FRED), `log_listings.txt` (ev kartları ve detay formu işlemleri)
+- `photos\{ST}\{fips}_{sokak}\` — referans fotoğraflar + REFERANS.txt (telifli, videoda kullanılmaz)
+- `earthstudio_{ST}.kml` — seçilen evlerin noktaları (Placemark adı "{İlçe} — {Şehir}", açıklamada kart metni ve adres)
+- `anim\{ST}\{fips}.csv` — `date,price,cut`: ilk satır ilan tarihi/ilk fiyat (cut 0), sonra her fiyat değişikliği (küçük düşüşler ve artışlar dahil; cut = bir önceki fiyattan düşüş, artışta eksi)
 
 ## Kod stili
 Mevcut dosyalarla aynı: tek Form, `System.Text.Json`, `InvariantCulture`, aşırı soyutlama yok, Türkçe yorumlar ve arayüz metinleri. Arayüzde "ilçe" denir.
@@ -102,6 +116,10 @@ Bu çalıştırmadan çıkan düzeltmeler: (1) NetworkIdle yerine veri gelene ka
 Dördüncü canlı çalıştırma (bant 200-450, bant bölme ile): 77 sn, 9 liste sayfası, **1129 ilan**; 325k-450k bandı 8 sayfalık bütçe dolduğu için 350'de kaldı → bütçe 16'ya çıkarıldı (bölmeden önce 2 sayfa yer var mı bakılıyor). Adaylar artık gerçekten eski: 911, 742, 728, 723, 661 gün. Seçilen **1208 Barnsdale St, Lehigh Acres** (1969 yapımı, 1.323 sqft): 11 Eylül 2024'te 349.900 → 9 indirimle 229.900, 742 gün, Ağustos 2025'te çekilip Ekim'de fiyatsız yeniden ilana çıkmış, sahibi Haziran 2010'da 63.500'e almış. Kart: `Lehigh Acres: 11 Eylül 2024'te 349.900 $'a çıktı, 9 indirimle 229.900 $, 742 gündür satılık; sahibi Haziran 2010'da 63.500 $'a almıştı.` Ham tarihçeyle satır satır karşılaştırıldı, doğru. Ham tarihçelerde kira kayıtları görüldü (`historyEventType` 3) ve kural buna göre sıkılaştırıldı; 5 adayın canlı tarihçesi yeni kuralla yeniden hesaplandı, sonuçlar aynı.
 Beşinci canlı çalıştırma (bütçe 16): 1788 ilan, 15 sayfa, 1 dk 46 sn; 325k-385k aralığından ilçenin en eski ilanı çıktı (1825 Tomaso Ave, Temmuz 2022'den beri, 1530 gün, 1 indirim) ama 385k-450k yine 350'de kaldı. Kullanıcı "süre önemli değil, bekleriz" dedi → bütçe 40.
 Altıncı canlı çalıştırma (bütçe 40): 1897 ilan, 17 sayfa, ~2 dk, bütçe uyarısı yok. 385k-450k bandından gelen **16525 Wellington Lakes Cir, Fort Myers** (2000 yapımı, 2.264 sqft, 4 oda) seçildi: 15 Ağustos 2024 580.000 → 410.000, 769 gün, Ekim-Aralık 2024 ilandan kalkmış, sahibi Şubat 2017'de 310.000'e almış. İndirimlerden biri 430.000 → 429.999 (1 $) olduğu için 1.000 $ eşiği eklendi (kullanıcı: "düşük indirimleri atlayalım ama listeyi kaybetmeyelim"); 5 adayın canlı tarihçesinde yalnızca bu ev 10 → 9 oldu. Kart: `Fort Myers: 15 Ağustos 2024'te 580.000 $'a çıktı, 9 indirimle 410.000 $, 769 gündür satılık; sahibi Şubat 2017'de 310.000 $'a almıştı.` Kullanıcının yanlışlıkla çalıştırdığı Highlands County kaydı çıktı dosyalarından silindi.
+
+### 2026-09-24 — ev detay formu eki
+`FredPull_TASK_EK_EvDetay.md` uygulandı (kullanıcı toplama çalışırken; çalışan programa ve çıktı dosyalarına dokunulmadan, Release yapılandırmasında derlenerek). md'ye ek olarak: konum/fotoğraf adresleri toplama sırasında aynı ilan sayfasından alınıyor, fotoğraflar tarayıcısız CDN'den iniyor, KML eksik koordinatları tamamlamayı öneriyor, Grafik sekmesi, Haritada aç, Kartı kopyala. `HouseCandidate`'e `Lat`, `Lng`, `PriceSteps`, `PhotoUrls`, `PhotoPaths`.
+Doğrulama: fotoğraf adresi/konum çıkarma, fiyat adımları, KML (geçerli XML, kaçış), animasyon CSV, yerel sahte sunucudan fotoğraf indirme (12 sınırı, eksik dosya, REFERANS.txt) ve sahte yanıtlı uçtan uca toplamada fotoğraf/konum/adım alımı test edildi; canlı Lee verisinin kopyasıyla form ekran dışında açılıp resmi alındı (tablo, fiyat geçmişi, grafik, küçük resimler, önizleme). Gerçek Redfin'den fotoğraf indirme ve KML tamamlama canlıda henüz denenmedi.
 
 ## Açık konular
 - Claude ilan toplayıcıyı Redfin'e karşı kendisi çalıştırmaz; canlı çalıştırmaları kullanıcı yapar, Claude `out\log_listings.txt` ve `out\listings_XX.json`'u okuyup değerlendirir. md'deki kabul testi (Bant `200-450`) henüz çalıştırılmadı: Florida → Lee County, "Müstakil ev", Bant `200-450`, "Ev kartlarını topla" (403 sürerse "Açık Chrome'a bağlan (9222)" ile).

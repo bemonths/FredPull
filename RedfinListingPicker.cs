@@ -219,7 +219,12 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         {
             ct.ThrowIfCancellationRequested();
             status.Report($"{county.Name} — {c.Street} fiyat geçmişi...");
-            try { ApplyHistory(c, await LoadHistoryAsync(c.Url, ct)); }
+            try
+            {
+                var (events, html) = await LoadHistoryAsync(c.Url, ct);
+                ApplyHistory(c, events);
+                FillFromListingPage(c, html);      // aynı sayfadan fotoğraf adresleri ve (eksikse) konum
+            }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) when (!Closed && ex is not BlockedException)     // engel: ilçeyi atla
             {
@@ -405,6 +410,8 @@ public sealed class RedfinListingPicker : IAsyncDisposable
             SqFt = (int?)Num(h, "sqFt", "value"),
             Beds = Num(h, "beds"),
             Baths = Num(h, "baths"),
+            Lat = Num(h, "latLong", "value", "latitude"),
+            Lng = Num(h, "latLong", "value", "longitude"),
         };
     }
 
@@ -424,15 +431,17 @@ public sealed class RedfinListingPicker : IAsyncDisposable
 
     // ---------- A5: fiyat geçmişi ve seçim ----------
 
-    async Task<List<HistoryEvent>> LoadHistoryAsync(string url, CancellationToken ct)
+    /// Fiyat geçmişi + sayfanın HTML'i (fotoğraf adresleri ve konum aynı sayfadan okunur).
+    async Task<(List<HistoryEvent> Events, string Html)> LoadHistoryAsync(string url, CancellationToken ct)
     {
         // Hazır: fiyat geçmişi bir yanıtta ya da HTML'e gömülü blokta var (genelde ilk HTML'de gelir)
         var page = await OpenAsync(url, u => u.Contains("/stingray/"),
             d => ReadEvents(d.Captured) != null || ReadEvents(EmbeddedBlocks(d.Html)) != null, ct);
 
         // 1) sayfanın kendi yanıtları; 2) olmazsa HTML'e gömülü bloklar
-        return ReadEvents(page.Captured) ?? ReadEvents(EmbeddedBlocks(page.Html))
+        var events = ReadEvents(page.Captured) ?? ReadEvents(EmbeddedBlocks(page.Html))
             ?? throw new InvalidOperationException("fiyat geçmişi bulunamadı (propertyHistoryInfo yok)");
+        return (events, page.Html);
     }
 
     /// payload.propertyHistoryInfo.events olan ilk gövde. Hiçbirinde yoksa null.
@@ -442,18 +451,41 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         {
             using var doc = ParseRedfin(body);
             if (doc == null || Get(doc.RootElement, "payload", "propertyHistoryInfo", "events") is not { ValueKind: JsonValueKind.Array } events) continue;
-            var list = new List<HistoryEvent>();
-            foreach (var e in events.EnumerateArray())
-            {
-                var ms = Num(e, "eventDate");
-                if (!ms.HasValue) continue;
-                // eventDate ABD'de gece yarısı (UTC 04-10); UTC tarihi aynı gün
-                var date = DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeMilliseconds((long)ms.Value).UtcDateTime);
-                list.Add(new HistoryEvent(date, Str(e, "eventDescription") ?? "", (int?)Num(e, "price"), IsRentalEvent(e), e.Clone()));
-            }
-            return list;
+            return EventsFrom(events.EnumerateArray());
         }
         return null;
+    }
+
+    static List<HistoryEvent> EventsFrom(IEnumerable<JsonElement> raw)
+    {
+        var list = new List<HistoryEvent>();
+        foreach (var e in raw)
+        {
+            var ms = Num(e, "eventDate");
+            if (!ms.HasValue) continue;
+            // eventDate ABD'de gece yarısı (UTC 04-10); UTC tarihi aynı gün
+            var date = DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeMilliseconds((long)ms.Value).UtcDateTime);
+            list.Add(new HistoryEvent(date, Str(e, "eventDescription") ?? "", (int?)Num(e, "price"), IsRentalEvent(e), e.Clone()));
+        }
+        return list;
+    }
+
+    /// Ev detay formundaki fiyat geçmişi tablosu için: ham tarihçenin bütün kayıtları, yeni → eski.
+    public sealed record HistoryRow(DateOnly Date, string Description, int? Price, bool Rental, bool Sale);
+
+    public static List<HistoryRow> HistoryRows(HouseCandidate c) =>
+        EventsFrom(c.RawHistory ?? new())
+            .OrderByDescending(e => e.Date)
+            .Select(e => new HistoryRow(e.Date, e.Description, e.Price, e.Rental, e.Description.StartsWith("Sold", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+    /// Eski kayıtlarda (PriceSteps yokken) fiyat adımlarını ham tarihçeden çıkarır; adayın diğer alanlarına dokunmaz.
+    public static void FillPriceSteps(HouseCandidate c)
+    {
+        if (c.PriceSteps.Count > 0 || c.RawHistory is not { Count: > 0 }) return;
+        var tmp = new HouseCandidate { Price = c.Price };
+        ApplyHistory(tmp, EventsFrom(c.RawHistory));
+        c.PriceSteps = tmp.PriceSteps;
     }
 
     static readonly Regex RentWord = new(@"\b(rent|rents|rental|rentals|rented|for rent)\b", RegexOptions.IgnoreCase);
@@ -520,6 +552,11 @@ public sealed class RedfinListingPicker : IAsyncDisposable
             if (prev.HasValue && prev - e.Price >= MinCut) c.Cuts.Add(new PriceCut(e.Date, e.Price!.Value));
             prev = e.Price;
         }
+
+        // Animasyon için bütün fiyat adımları (küçük düşüşler ve artışlar dahil): ilk fiyat + her değişiklik
+        c.PriceSteps = new();
+        if (listed.Price is int first) c.PriceSteps.Add(new PriceCut(listed.Date, first));
+        c.PriceSteps.AddRange(changes.Select(e => new PriceCut(e.Date, e.Price!.Value)));
 
         // Mevcut ilandan önceki en yeni satış; fiyatsız (ya da sembolik fiyatlı) kayıtsa aynı satışın 90 gün içindeki fiyatlı kaydı
         var sale = saleIndex >= 0 ? ev[saleIndex] : null;
@@ -588,7 +625,12 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         {
             if (File.Exists(path))
                 foreach (var c in JsonSerializer.Deserialize<List<HouseCard>>(File.ReadAllText(path)) ?? new())
+                {
+                    // JSON'dan Chosen ayrı bir nesne olarak gelir; adaylardaki aynı evle eşle ki
+                    // sonradan eklenen konum/fotoğraf bilgisi seçilen evde de görünsün
+                    c.Chosen = c.Candidates.FirstOrDefault(a => a.Url == c.Chosen?.Url) ?? c.Chosen;
                     dict[c.Fips] = c;
+                }
         }
         catch (Exception ex) when (ex is IOException or JsonException) { }
         return dict;
@@ -613,6 +655,74 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     }
 
     static string Q(string s) => "\"" + s.Replace("\"", "\"\"") + "\"";
+
+    // ---------- ev detayı: konum ve fotoğraf adresleri ----------
+
+    /// İlan sayfasını açıp adayın eksik konumunu ve fotoğraf adreslerini doldurur (bu alanlardan önce toplanmış kartlar için).
+    public async Task EnrichAsync(HouseCandidate c, IProgress<string> status, CancellationToken ct)
+    {
+        _status = status;
+        _label = c.Street;
+        status.Report($"{c.Street} — ilan sayfası açılıyor");
+        var page = await OpenAsync(c.Url, null, d => ExtractPhotoUrls(d.Html).Count > 0, ct);
+        FillFromListingPage(c, page.Html);
+        _log($"{c.Street}: ilan sayfasından {c.PhotoUrls.Count} fotoğraf adresi, konum {(c.Lat.HasValue ? "var" : "yok")} — {c.Url}");
+    }
+
+    static void FillFromListingPage(HouseCandidate c, string html)
+    {
+        if (c.PhotoUrls.Count == 0) c.PhotoUrls = ExtractPhotoUrls(html);
+        if ((c.Lat == null || c.Lng == null) && ExtractLatLng(html) is { } ll) (c.Lat, c.Lng) = ll;
+    }
+
+    static readonly Regex PhotoUrlRx = new(@"https://ssl\.cdn-redfin\.com/photo/[A-Za-z0-9_\-./]+?\.(?:jpg|jpeg|png|webp)", RegexOptions.IgnoreCase);
+
+    /// Sayfadaki ilanın kendi fotoğrafları, büyük boy tercih edilir. "Benzer evler" fotoğrafları elenir:
+    /// dosya adı {ilanNo}_{sıra}[_{sürüm}] olduğundan og:image'daki (yoksa en sık geçen) ilan numarası tutulur.
+    public static List<string> ExtractPhotoUrls(string html)
+    {
+        var text = html.Replace("\\u002F", "/").Replace("\\/", "/");
+        var found = PhotoUrlRx.Matches(text).Select(m => m.Value).ToList();
+        if (found.Count == 0) return new();
+
+        static string Name(string u)       // genMid.123_4 → 123_4
+        {
+            var n = Path.GetFileNameWithoutExtension(u);
+            int dot = n.LastIndexOf('.');
+            return dot >= 0 ? n[(dot + 1)..] : n;
+        }
+        static string ListingNo(string u) { var n = Name(u); int us = n.IndexOf('_'); return us > 0 ? n[..us] : n; }
+        static int Index(string u) { var p = Name(u).Split('_'); return p.Length > 1 && int.TryParse(p[1], out var i) ? i : int.MaxValue; }
+        static int Size(string u) => u.Contains("/bigphoto/") ? 3 : u.Contains("genLarge") || u.Contains("/mbphotov3/") ? 2 : 1;
+
+        var og = Regex.Match(text, @"property=""og:image""\s+content=""([^""]+)""|content=""([^""]+)""\s+property=""og:image""");
+        var ogUrl = og.Success ? (og.Groups[1].Success ? og.Groups[1].Value : og.Groups[2].Value) : "";
+        var main = PhotoUrlRx.IsMatch(ogUrl)
+            ? ListingNo(PhotoUrlRx.Match(ogUrl).Value)
+            : found.GroupBy(ListingNo).OrderByDescending(g => g.Count()).First().Key;
+
+        var best = new Dictionary<string, string>();       // fotoğraf adı → en büyük boy adres
+        foreach (var u in found.Where(u => ListingNo(u) == main))
+            if (!best.TryGetValue(Name(u), out var cur) || Size(u) > Size(cur)) best[Name(u)] = u;
+        return best.Values.OrderBy(Index).ToList();
+    }
+
+    /// İlanın konumu: önce place:location meta etiketleri, yoksa sayfadaki ilk latitude/longitude çifti.
+    public static (double Lat, double Lng)? ExtractLatLng(string html)
+    {
+        static bool Ok(double lat, double lng) => Math.Abs(lat) <= 90 && Math.Abs(lng) <= 180 && (lat != 0 || lng != 0);
+        var lat = Regex.Match(html, @"place:location:latitude""\s+content=""(-?\d+(?:\.\d+)?)""");
+        var lng = Regex.Match(html, @"place:location:longitude""\s+content=""(-?\d+(?:\.\d+)?)""");
+        if (lat.Success && lng.Success)
+        {
+            double a = double.Parse(lat.Groups[1].Value, Inv), b = double.Parse(lng.Groups[1].Value, Inv);
+            if (Ok(a, b)) return (a, b);
+        }
+        var m = Regex.Match(html.Replace("\\\"", "\""), @"""latitude""\s*:\s*(-?\d+\.\d+)\s*,\s*""longitude""\s*:\s*(-?\d+\.\d+)");
+        if (!m.Success) return null;
+        double la = double.Parse(m.Groups[1].Value, Inv), lo = double.Parse(m.Groups[2].Value, Inv);
+        return Ok(la, lo) ? (la, lo) : null;
+    }
 
     // ---------- sayfa açma ----------
 

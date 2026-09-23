@@ -30,6 +30,14 @@ Her ilçe için "aylardır satılamayan tek bir ev" seçer. Tabloda ilçeleri se
 - Sonuç sağ panelin en üstünde "EV KARTI" olarak görünür; ranking_XX.csv'ye house_card sütunu eklenir.
 - Redfin engellerse ("Access Denied" / 403) 60 sn bekleyip bir kez daha dener, olmazsa ilçeyi atlar ve adresi log_listings.txt'e yazar.
 
+## Ev detayları
+Tabloda satıra çift tıkla ya da "Ev detayları": adaylar, fiyat geçmişi ve grafiği, referans fotoğraflar.
+- "Bu evi seç": kart metnine başka bir adayı koyar (listings dosyaları ve ranking güncellenir).
+- "Fotoğrafları indir (referans)": en çok 12 fotoğraf out\photos\ altına iner. Emlakçı/MLS telifli; videoda kullanılmaz, yalnızca referans.
+- "KML dışa aktar": seçilen evler out\earthstudio_XX.kml (Google Earth Studio). Koordinatı olmayanlar için ilan sayfasından tamamlamayı önerir.
+- "Animasyon CSV": seçilen her ev için out\anim\XX\<fips>.csv (date, price, cut) — fiyat sayacı ve indirim etiketi için.
+- Tarayıcı açan işler (fotoğraf, konum tamamlama) ev kartı toplama sürerken yapılamaz; toplama bitince dene.
+
 ## Sağ panel
 Seçili ilçe için: okuma (3-5 cümle, sonunda "Sonuç"), ilçe / eyalet / ABD yan yana rakamlar, skor dökümü, tanımlar.
 Grafik: seçili metrik; ilan süresi, indirim payı, aylık stok, satış/liste metriklerinde eyalet ve ABD çizgisi de çizilir; stok ve satış sayılarında 2019 çizgisi; fiyatlarda zirve çizgisi.

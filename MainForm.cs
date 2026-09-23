@@ -307,6 +307,7 @@ public partial class MainForm : Form
 
     void SetBusy(bool busy)
     {
+        Busy = busy;
         _btnFetch.Enabled = !busy; _btnLoad.Enabled = !busy; _cbState.Enabled = !busy; _btnRedfin.Enabled = !busy;
         _btnAttachRedfin.Enabled = !busy; _btnHouseCards.Enabled = !busy; _cbHouseMode.Enabled = !busy; _txtBand.Enabled = !busy; _chkCdp.Enabled = !busy;
         _btnCancel.Enabled = busy;
@@ -355,6 +356,7 @@ public partial class MainForm : Form
         using var log = new StreamWriter(logPath, true, Encoding.UTF8) { AutoFlush = true };
         var logLock = new object();
         void Log(string line) { lock (logLock) log.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {line}"); }
+        _listingLog = Log;     // toplama sürerken ev detay formları da bu yazıcıyı kullanır (dosya açık)
         Log($"--- {state}, {targets.Count} ilçe, {modeName}, {bandText}{(cdp ? ", açık Chrome (9222)" : "")}");
 
         int done = 0, found = 0;
@@ -416,8 +418,71 @@ public partial class MainForm : Form
         {
             if (picker != null) await Task.Run(() => picker.DisposeAsync().AsTask());
             if (done > 0) SaveRanking();
+            _listingLog = null;
             SetBusy(false);
         }
+    }
+
+    // ---------- ev detay formu ----------
+
+    Action<string>? _listingLog;
+
+    void BtnHouseDetail_Click(object? sender, EventArgs e) => OpenHouseDetail(Selected);
+
+    void Grid_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex >= 0) OpenHouseDetail(_grid.Rows[e.RowIndex].Tag as CountyResult);
+    }
+
+    void OpenHouseDetail(CountyResult? r)
+    {
+        if (r == null) return;
+        if (!_cards.ContainsKey(r.County.Fips))
+        {
+            MessageBox.Show($"{r.County.Name} için ev kartı yok. Önce satırı seçip \"Ev kartlarını topla\".", "Ev detayları");
+            return;
+        }
+        // Aynı ilçe zaten açıksa öne getir; farklı ilçeler için birden fazla form açılabilir
+        var open = Application.OpenForms.OfType<HouseDetailForm>().FirstOrDefault(f => f.Fips == r.County.Fips && f.State == _snap.State);
+        if (open != null) { open.Activate(); return; }
+        new HouseDetailForm(this, r.County.Fips).Show(this);
+    }
+
+    // Ev detay formunun kullandığı üyeler
+    internal bool Busy { get; private set; }
+    internal string BaseDir => _baseDir;
+    internal string OutDir => _outDir;
+    internal string CardsState => _snap.State;
+    internal Dictionary<string, HouseCard> Cards => _cards;
+    internal bool UseOpenChrome => _chkCdp.Checked;
+
+    /// Formdan uzun iş (tarayıcı, indirme) başlarken: ana formu meşgul yapar, "İptal" bu işi durdurur.
+    internal CancellationToken BeginWork()
+    {
+        _cts = new CancellationTokenSource();
+        SetBusy(true);
+        return _cts.Token;
+    }
+
+    internal void EndWork() => SetBusy(false);
+
+    /// Kartlar değişti: listings dosyaları, ranking csv ve sağ panel.
+    internal void SaveCards()
+    {
+        RedfinListingPicker.SaveListings(_outDir, _snap.State, _cards.Values);
+        if (_snap.Counties.Count > 0) SaveRanking();
+        UpdatePlot();
+    }
+
+    internal void LogListings(string line)
+    {
+        if (_listingLog != null) { _listingLog(line); return; }
+        try
+        {
+            Directory.CreateDirectory(_outDir);
+            File.AppendAllText(Path.Combine(_outDir, "log_listings.txt"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {line}\r\n", Encoding.UTF8);
+        }
+        catch (IOException) { }
     }
 
     /// "200-450" → 200.000-450.000 $. Boş → null (otomatik).
