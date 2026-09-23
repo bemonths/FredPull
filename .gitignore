@@ -1,0 +1,12 @@
+# Visual Studio / derleme
+.vs/
+bin/
+obj/
+*.user
+
+# Çalışma verisi ve gizli bilgiler (exe yanında oluşur)
+out/
+redfin/
+pw-profile/
+fred_api_key.txt
+counties_all.txt
