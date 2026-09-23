@@ -474,6 +474,9 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     /// Bunun altındaki fiyatlar satış fiyatı değildir: aylık kira ya da sembolik devir (ör. 10 $'lık tapu devri).
     const int MinRealPrice = 25_000;
 
+    /// Bundan küçük fiyat düşüşü indirim sayılmaz; toplam düşüş (TotalCut) yine ilk ve son fiyattan hesaplanır.
+    const int MinCut = 1_000;
+
     static void ApplyHistory(HouseCandidate c, List<HistoryEvent> events)
     {
         c.RawHistory = events.Select(e => e.Raw).ToList();
@@ -513,7 +516,8 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         int? prev = listed.Price;
         foreach (var e in changes)
         {
-            if (prev.HasValue && e.Price < prev) c.Cuts.Add(new PriceCut(e.Date, e.Price!.Value));
+            // 1.000 $'dan küçük düşüş indirim sayılmaz (430.000 → 429.999 gibi ilanı öne çıkarmak için yapılan değişiklik)
+            if (prev.HasValue && prev - e.Price >= MinCut) c.Cuts.Add(new PriceCut(e.Date, e.Price!.Value));
             prev = e.Price;
         }
 
