@@ -56,6 +56,11 @@ namespace FredPull
             _chkCdp = new CheckBox();
             _btnHouseCards = new Button();
             _btnHouseDetail = new Button();
+            _lblStudio = new Label();
+            _txtStudio = new TextBox();
+            _btnStudioBrowse = new Button();
+            _btnStudioProject = new Button();
+            _btnStudioRender = new Button();
             _split = new SplitContainer();
             _grid = new DataGridView();
             _colName = new DataGridViewTextBoxColumn();
@@ -110,13 +115,19 @@ namespace FredPull
             _top.Controls.Add(_chkCdp);
             _top.Controls.Add(_btnHouseCards);
             _top.Controls.Add(_btnHouseDetail);
+            _top.Controls.Add(_lblStudio);
+            _top.Controls.Add(_txtStudio);
+            _top.Controls.Add(_btnStudioBrowse);
+            _top.Controls.Add(_btnStudioProject);
+            _top.Controls.Add(_btnStudioRender);
             _top.Dock = DockStyle.Top;
             _top.Location = new Point(0, 0);
             _top.Name = "_top";
             _top.Padding = new Padding(8, 6, 8, 2);
-            _top.Size = new Size(1544, 70);
+            _top.Size = new Size(1544, 104);
             _top.TabIndex = 0;
             _top.SetFlowBreak(_btnOpenOut, true);
+            _top.SetFlowBreak(_btnHouseDetail, true);
             //
             // _lblState
             //
@@ -314,10 +325,63 @@ namespace FredPull
             _btnHouseDetail.UseVisualStyleBackColor = true;
             _btnHouseDetail.Click += BtnHouseDetail_Click;
             //
+            // _lblStudio
+            //
+            _lblStudio.AutoSize = true;
+            _lblStudio.Location = new Point(18, 78);
+            _lblStudio.Margin = new Padding(10, 7, 4, 0);
+            _lblStudio.Name = "_lblStudio";
+            _lblStudio.Size = new Size(98, 15);
+            _lblStudio.TabIndex = 19;
+            _lblStudio.Text = "Harita Stüdyosu:";
+            //
+            // _txtStudio
+            //
+            _txtStudio.Location = new Point(123, 74);
+            _txtStudio.Name = "_txtStudio";
+            _txtStudio.PlaceholderText = "klasör seçilmedi";
+            _txtStudio.ReadOnly = true;
+            _txtStudio.Size = new Size(380, 23);
+            _txtStudio.TabIndex = 20;
+            //
+            // _btnStudioBrowse
+            //
+            _btnStudioBrowse.AutoSize = true;
+            _btnStudioBrowse.Location = new Point(509, 73);
+            _btnStudioBrowse.Name = "_btnStudioBrowse";
+            _btnStudioBrowse.Size = new Size(50, 25);
+            _btnStudioBrowse.TabIndex = 21;
+            _btnStudioBrowse.Text = "Seç…";
+            _btnStudioBrowse.UseVisualStyleBackColor = true;
+            _btnStudioBrowse.Click += BtnStudioBrowse_Click;
+            //
+            // _btnStudioProject
+            //
+            _btnStudioProject.AutoSize = true;
+            _btnStudioProject.Location = new Point(575, 73);
+            _btnStudioProject.Margin = new Padding(12, 3, 3, 3);
+            _btnStudioProject.Name = "_btnStudioProject";
+            _btnStudioProject.Size = new Size(140, 25);
+            _btnStudioProject.TabIndex = 22;
+            _btnStudioProject.Text = "Stüdyo projesi oluştur";
+            _btnStudioProject.UseVisualStyleBackColor = true;
+            _btnStudioProject.Click += BtnStudioProject_Click;
+            //
+            // _btnStudioRender
+            //
+            _btnStudioRender.AutoSize = true;
+            _btnStudioRender.Location = new Point(721, 73);
+            _btnStudioRender.Name = "_btnStudioRender";
+            _btnStudioRender.Size = new Size(130, 25);
+            _btnStudioRender.TabIndex = 23;
+            _btnStudioRender.Text = "Stüdyoda render al";
+            _btnStudioRender.UseVisualStyleBackColor = true;
+            _btnStudioRender.Click += BtnStudioRender_Click;
+            //
             // _split
             //
             _split.Dock = DockStyle.Fill;
-            _split.Location = new Point(0, 70);
+            _split.Location = new Point(0, 104);
             _split.Name = "_split";
             //
             // _split.Panel1
@@ -327,7 +391,7 @@ namespace FredPull
             // _split.Panel2
             //
             _split.Panel2.Controls.Add(_right);
-            _split.Size = new Size(1544, 767);
+            _split.Size = new Size(1544, 733);
             _split.SplitterDistance = 864;
             _split.TabIndex = 1;
             //
@@ -599,6 +663,11 @@ namespace FredPull
         private CheckBox _chkCdp;
         private Button _btnHouseCards;
         private Button _btnHouseDetail;
+        private Label _lblStudio;
+        private TextBox _txtStudio;
+        private Button _btnStudioBrowse;
+        private Button _btnStudioProject;
+        private Button _btnStudioRender;
 
         // Sol: tablo
         private SplitContainer _split;

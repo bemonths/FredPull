@@ -508,7 +508,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     const int MinRealPrice = 25_000;
 
     /// Bundan küçük fiyat düşüşü indirim sayılmaz; toplam düşüş (TotalCut) yine ilk ve son fiyattan hesaplanır.
-    const int MinCut = 1_000;
+    public const int MinCut = 1_000;
 
     static void ApplyHistory(HouseCandidate c, List<HistoryEvent> events)
     {

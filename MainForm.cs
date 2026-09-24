@@ -43,6 +43,7 @@ public partial class MainForm : Form
 
         if (File.Exists(_keyFile)) _txtKey.Text = File.ReadAllText(_keyFile).Trim();
         UpdateRedfinLabel();
+        LoadSettings();
 
         _info.Text = Analyzer.Glossary;
     }
@@ -310,6 +311,7 @@ public partial class MainForm : Form
         Busy = busy;
         _btnFetch.Enabled = !busy; _btnLoad.Enabled = !busy; _cbState.Enabled = !busy; _btnRedfin.Enabled = !busy;
         _btnAttachRedfin.Enabled = !busy; _btnHouseCards.Enabled = !busy; _cbHouseMode.Enabled = !busy; _txtBand.Enabled = !busy; _chkCdp.Enabled = !busy;
+        _btnStudioBrowse.Enabled = !busy; _btnStudioProject.Enabled = !busy; _btnStudioRender.Enabled = !busy;
         _btnCancel.Enabled = busy;
         if (!busy) _progress.Value = 0;
     }
@@ -420,6 +422,224 @@ public partial class MainForm : Form
             if (done > 0) SaveRanking();
             _listingLog = null;
             SetBusy(false);
+        }
+    }
+
+    // ---------- Harita Stüdyosu ----------
+
+    sealed class AppSettings
+    {
+        public string? StudioDir { get; set; }
+    }
+
+    AppSettings _settings = new();
+    string SettingsPath => Path.Combine(_baseDir, "fredpull_settings.json");
+
+    /// Ayar dosyası exe yanında. Stüdyo klasörü yoksa ya da geçersizse exe'den yukarı doğru "harita-studyosu" aranır.
+    void LoadSettings()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+                _settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new();
+        }
+        catch (Exception ex) when (ex is IOException or JsonException) { _settings = new(); }
+        if (StudioExport.CheckStudio(_settings.StudioDir) != null && StudioExport.FindStudio(_baseDir) is { } found)
+        {
+            _settings.StudioDir = found;
+            SaveSettings();
+        }
+        _txtStudio.Text = _settings.StudioDir ?? "";
+    }
+
+    void SaveSettings()
+    {
+        try { File.WriteAllText(SettingsPath, JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true })); }
+        catch (IOException ex) { _status.Text = "Ayar dosyası yazılamadı: " + ex.Message; }
+    }
+
+    void BtnStudioBrowse_Click(object? sender, EventArgs e)
+    {
+        using var dlg = new FolderBrowserDialog
+        {
+            Description = "Harita Stüdyosu klasörünü seç (içinde engine ve .venv olan)",
+            UseDescriptionForTitle = true,
+            SelectedPath = _settings.StudioDir ?? "",
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        if (StudioExport.CheckStudio(dlg.SelectedPath) is { } err)
+        {
+            MessageBox.Show(err, "Harita Stüdyosu", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        _settings.StudioDir = dlg.SelectedPath;
+        SaveSettings();
+        _txtStudio.Text = dlg.SelectedPath;
+    }
+
+    string? StudioDirOrWarn()
+    {
+        if (StudioExport.CheckStudio(_settings.StudioDir) is not { } err) return _settings.StudioDir;
+        MessageBox.Show(err + "\n\nKlasörü \"Seç…\" ile göster.", "Harita Stüdyosu", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        return null;
+    }
+
+    void LogStudio(string line)
+    {
+        try
+        {
+            Directory.CreateDirectory(_outDir);
+            File.AppendAllText(Path.Combine(_outDir, "log_studio.txt"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {line}\r\n", Encoding.UTF8);
+        }
+        catch (IOException) { }
+    }
+
+    /// Proje JSON'unu stüdyonun projects klasörüne yazar ve stüdyoya doğrulatır. Kullanılamazsa null (mesaj gösterilmiştir).
+    async Task<StudioExport.Result?> ExportStudioProjectAsync(string studioDir, CancellationToken ct)
+    {
+        if (_snap.Counties.Count == 0)
+        {
+            MessageBox.Show("Mevcut sonuç yok. Önce \"Verileri çek\" ya da \"Son sonucu yükle\".", "Stüdyo projesi");
+            return null;
+        }
+        var state = _snap.State;
+        var warnings = new List<string>();
+        var textPath = Path.Combine(_outDir, $"metinler_{state}.csv");
+        List<StudioExport.TextRow> texts;
+        if (File.Exists(textPath)) texts = StudioExport.ReadTexts(textPath, warnings);
+        else
+        {
+            // Metin dosyası yok: tabloda seçili satırlar ekrandaki sırayla; alt satır seçilen evin şehri, istatistik boş
+            var sel = _grid.SelectedRows.Cast<DataGridViewRow>().OrderBy(r => r.Index).Select(r => r.Tag).OfType<CountyResult>().ToList();
+            if (sel.Count == 0)
+            {
+                MessageBox.Show($"out\\metinler_{state}.csv yok ve tabloda seçili ilçe yok. Videodaki ilçeleri seç ya da metin dosyasını koy.", "Stüdyo projesi");
+                return null;
+            }
+            texts = sel.Select((r, i) => new StudioExport.TextRow(i + 1, r.County.Fips, r.County.Name,
+                _cards.TryGetValue(r.County.Fips, out var c) && c.Chosen != null ? c.Chosen.City : "", "")).ToList();
+            warnings.Insert(0, $"out\\metinler_{state}.csv yok: tablodaki {sel.Count} seçili ilçe ekrandaki sırayla alındı, istatistik satırı boş.");
+        }
+        if (texts.Count == 0)
+        {
+            MessageBox.Show($"{Path.GetFileName(textPath)} içinde ilçe yok.", "Stüdyo projesi");
+            return null;
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var name = StudioExport.UniqueName(studioDir, $"{state}_{today.ToString("yyyyMMdd", Inv)}");
+        var (project, scenes, seconds) = StudioExport.Build(_snap, _cards, texts, name, today, warnings);
+        var path = StudioExport.Write(studioDir, project);
+        _status.Text = "Stüdyo doğrulaması çalışıyor...";
+        var errors = await StudioExport.ValidateAsync(studioDir, path, ct);
+        LogStudio($"proje {path}: {scenes} sahne, doğrulama {(errors.Count == 0 ? "temiz" : errors.Count + " hata")}, {warnings.Count} uyarı");
+        foreach (var w in warnings) LogStudio("  uyarı: " + w);
+        foreach (var er in errors) LogStudio("  hata: " + er);
+        _status.Text = $"Stüdyo projesi: {path} — {scenes} sahne, {(errors.Count == 0 ? "doğrulama temiz" : errors.Count + " doğrulama hatası")}";
+        return new StudioExport.Result(name, path, scenes, warnings, errors, seconds);
+    }
+
+    static string StudioSummary(StudioExport.Result r)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Proje: {r.Path}");
+        sb.AppendLine($"{r.Scenes} sahne, video yaklaşık {TimeSpan.FromSeconds(r.VideoSeconds):m\\:ss}.");
+        sb.AppendLine(r.Errors.Count == 0 ? "Stüdyo doğrulaması: hata yok." : $"Stüdyo doğrulaması: {r.Errors.Count} hata");
+        foreach (var e in r.Errors.Take(15)) sb.AppendLine("  - " + e);
+        if (r.Warnings.Count > 0)
+        {
+            sb.AppendLine("Uyarılar:");
+            foreach (var w in r.Warnings.Take(15)) sb.AppendLine("  - " + w);
+        }
+        return sb.ToString();
+    }
+
+    async void BtnStudioProject_Click(object? sender, EventArgs e)
+    {
+        if (StudioDirOrWarn() is not { } dir) return;
+        var ct = BeginWork();
+        try
+        {
+            if (await ExportStudioProjectAsync(dir, ct) is not { } res) return;
+            MessageBox.Show(StudioSummary(res) + $"\nStüdyo arayüzünde \"Proje aç…\" listesinde {res.Name} olarak görünür.",
+                "Stüdyo projesi", MessageBoxButtons.OK, res.Errors.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        }
+        catch (OperationCanceledException) { _status.Text = "İptal edildi."; }
+        catch (Exception ex)
+        {
+            LogStudio("proje hatası: " + ex.Message);
+            MessageBox.Show(ex.Message, "Stüdyo projesi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _status.Text = "Hata: " + ex.Message;
+        }
+        finally { EndWork(); }
+    }
+
+    async void BtnStudioRender_Click(object? sender, EventArgs e)
+    {
+        if (StudioDirOrWarn() is not { } dir) return;
+        var ct = BeginWork();
+        var sw = new Stopwatch();
+        try
+        {
+            if (await ExportStudioProjectAsync(dir, ct) is not { } res) return;
+            if (res.Errors.Count > 0)
+            {
+                MessageBox.Show(StudioSummary(res) + "\nHatalar düzelmeden render başlamaz.", "Stüdyoda render al", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            // Geliştirme bilgisayarında render videonun ~5 katı sürüyor (ENTEGRASYON.md §6)
+            var estimate = TimeSpan.FromSeconds(res.VideoSeconds * 5);
+            if (MessageBox.Show(StudioSummary(res) + $"\nRender tahminen {Math.Ceiling(estimate.TotalMinutes)} dk sürer (işlemciye bağlı). İptal ile durdurulabilir.\nBaşlasın mı?",
+                    "Stüdyoda render al", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+            _progress.Maximum = 1000;
+            _progress.Value = 0;
+            _status.Text = "Render başlıyor...";
+            LogStudio($"render başladı: {res.Path}");
+            sw.Start();
+            var outputs = await StudioExport.RenderAsync(dir, res.Path, OnStudioEvent, ct);
+            sw.Stop();
+
+            var outDir = outputs.Select(Path.GetDirectoryName).FirstOrDefault(d => !string.IsNullOrEmpty(d));
+            LogStudio($"render bitti: {sw.Elapsed:h\\:mm\\:ss}, {outputs.Count} dosya — {outDir}");
+            _status.Text = $"Render bitti ({sw.Elapsed:h\\:mm\\:ss}): {outputs.Count} dosya — {outDir}";
+            if (outDir != null) Process.Start("explorer.exe", outDir);
+        }
+        catch (OperationCanceledException)
+        {
+            LogStudio($"render iptal edildi ({sw.Elapsed:h\\:mm\\:ss})");
+            _status.Text = "Render iptal edildi; stüdyo süreci sonlandırıldı.";
+        }
+        catch (Exception ex)
+        {
+            LogStudio("render hatası: " + ex.Message);
+            MessageBox.Show(ex.Message, "Stüdyo render hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _status.Text = "Render hatası: " + ex.Message.Split('\n')[0];
+        }
+        finally { EndWork(); }
+    }
+
+    /// --progress-json olayları: ilerleme = (scene + frame/total) / scenes.
+    void OnStudioEvent(JsonElement ev)
+    {
+        switch (ev.TryGetProperty("event", out var k) ? k.GetString() : null)
+        {
+            case "progress":
+                int scene = ev.GetProperty("scene").GetInt32(), scenes = ev.GetProperty("scenes").GetInt32();
+                int frame = ev.GetProperty("frame").GetInt32(), total = Math.Max(1, ev.GetProperty("total").GetInt32());
+                double overall = (scene + (double)frame / total) / Math.Max(1, scenes);
+                _progress.Value = Math.Clamp((int)(overall * 1000), 0, 1000);
+                _status.Text = $"Render: sahne {scene + 1}/{scenes}, kare {frame}/{total} — %{overall * 100:0}";
+                break;
+            case "compose":
+                _status.Text = "Render: sahneler birleştiriliyor...";
+                break;
+            case "log":
+                _status.Text = "Stüdyo: " + ev.GetProperty("message").GetString();
+                break;
+            case "error":
+                _status.Text = "Stüdyo hatası: " + ev.GetProperty("message").GetString();
+                break;
         }
     }
 

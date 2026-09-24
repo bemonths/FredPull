@@ -34,11 +34,14 @@ ABD ilçelerinin (county) konut piyasasını iki kaynaktan okuyup her ilçe içi
 | `FredPull_CLAUDE_CODE_TASK.md` | 2026-09-23'te uygulanan görev tanımı (tarihsel kayıt). |
 | `FredPull_TASK_EK_Redfin403.md` | Aynı gün uygulanan ek: Redfin 403'e karşı tarayıcı ayarları (tarihsel kayıt). |
 | `FredPull_TASK_EK_EvDetay.md` | 2026-09-24 eki: ev detay formu ve materyal dışa aktarma (tarihsel kayıt). |
+| `StudioExport.cs` | Harita Stüdyosu projesi üretme (state_map + county_focus + price_ladder), stüdyo doğrulaması, komut satırından render. |
+| `FredPull_TASK_StudyoExport.md` | 2026-09-24 görevi: Harita Stüdyosu projesi dışa aktarma ve tek tıkla render (tarihsel kayıt). |
 
 ## Arayüz
 Üst çubuk iki satır:
 1. Eyalet · ilçe sayısı · FRED API anahtarı · **Verileri çek** · İptal · Son sonucu yükle · out klasörü
 2. Redfin verisini indir · Redfin tarihi · **Redfin'i mevcut sonuca ekle** · Ev kartı: [Müstakil ev / Daire] · Bant (bin $) · ☐ Açık Chrome'a bağlan (9222) · **Ev kartlarını topla** · **Ev detayları**
+3. Harita Stüdyosu: [klasör] · Seç… · **Stüdyo projesi oluştur** · **Stüdyoda render al**
 
 Sol: 10 sütunlu tablo (çoklu seçim açık; Ctrl/Shift, Ctrl+A). Sağ: metrik grafiği (ScottPlot) + bilgi metni. Bilgi metni odaktaki satırı (`CurrentRow`) gösterir; ilçenin ev kartı varsa en üstte "EV KARTI" bölümü çıkar.
 
@@ -80,6 +83,16 @@ Tabloda satıra çift tık ya da "Ev detayları" → o ilçenin kartı (modal de
 - Tarayıcı gerektiren işler (eski kartlarda ilan sayfasını açmak) ana form meşgulken yapılmaz (aynı Chrome profili kilitli olur); `MainForm.BeginWork/EndWork` ile ana form meşgul olur, ana "İptal" bu işi de durdurur. Log `MainForm.LogListings` (toplama sürerken açık yazıcıyı kullanır).
 - **Konum ve fotoğraf adresleri toplama sırasında alınır**: liste sayfasındaki `latLong.value.latitude/longitude`, yoksa ilan sayfasının `place:location` meta etiketleri ya da ilk latitude/longitude; fotoğraflar ilan sayfasındaki `ssl.cdn-redfin.com/photo/...` adresleri — `og:image`'daki ilan numarasıyla süzülür ("benzer evler" fotoğrafları elenir), büyük boy (`bigphoto`) tercih edilir, sıra numarasına göre dizilir. Böylece fotoğraf indirmek için sayfa tekrar açılmaz; görüntüler CDN'den `HttpClient` ile iner (en çok 12, `out\photos\{ST}\{fips}_{sokak}\01.jpg`, yanında `REFERANS.txt`: "Emlakçı/MLS telifli; videoda kullanılmaz, yalnızca referans."). Bu alanlardan önce toplanmış kartlarda "Fotoğrafları indir" ilan sayfasını açıp tamamlar (`EnrichAsync`); KML de koordinatı eksik seçilmiş evler için tamamlamayı önerir.
 - JSON'dan okunan kartta `Chosen` adaylardaki aynı nesneye bağlanır (`LoadListings`), yoksa sonradan eklenen konum/fotoğraf seçilen evde görünmezdi.
+
+## Harita Stüdyosu (`StudioExport`)
+Video haritalarını üreten ayrı araç: https://github.com/bemonths/harita-studyosu (bu bilgisayarda `FredPull\harita-studyosu`, FredPull deposunun dışında: `.git/info/exclude`). Şema ve komut satırı stüdyonun `docs\ENTEGRASYON.md` §5-6'sında.
+- **Klasör:** exe yanındaki `fredpull_settings.json` (`StudioDir`). Boşsa/geçersizse exe'den yukarı doğru `harita-studyosu` aranır. Geçerli sayılması için `engine\cli.py` ve `.venv\Scripts\python.exe` olmalı; "Seç…" ile değiştirilir.
+- **Metin dosyası** `out\metinler_{ST}.csv` (`order,fips,county,focus_sub,focus_stat`, UTF-8, tırnaklı alanlar): videodaki county sırası ve etiketin iki satırı; senaryo sohbetinden gelir. Yoksa tabloda seçili satırlar ekrandaki sırayla alınır (alt satır seçilen evin şehri, istatistik boş) ve kullanıcıya söylenir.
+- **Stüdyo projesi oluştur:** `<stüdyo>\projects\{ST}_{yyyyMMdd}.json` (ad dosya adıyla aynı; varsa `_2`, `_3`). Sahneler: `state_map` (subtitle `"{N} COUNTIES  ·  {AY} {YIL} DATA"`, FRED veri ayı İngilizce; `assign` eyaletin bütün county'leri, sinyal → `buyers/sellers/price/weak/stable/hot`, Küçük taban yazılmaz; `focus` null; kategori/accent yazılmaz) + her metin satırı için `county_focus` (aynı `assign`, `focus`=FIPS, `focus_sub`/`focus_stat` metinden) ve seçilen ev varsa `price_ladder` (kicker `"{İLÇE ADI}  ·  {ŞEHİR}"` büyük harf, title boş, subtitle `"4 bedrooms  ·  built 2000  ·  listed August 2024"` / daire `"2-bedroom condo  ·  …"`, history, today, paid/paid_year). Ev kartı yoksa price_ladder atlanır ve uyarı verilir. JSON BOM'suz (Python `json.load` BOM'u reddeder).
+- **Fiyat merdiveni geçmişi** (`LadderHistory`): `PriceSteps`; aynı güne düşen adımlardan sonuncusu, ardışık eşit ya da **1.000 $'dan küçük** farklı adımlar birleşir. Stüdyo her düşüşü indirim sayıyor (`n_cuts`); böylece videodaki "ONE HOUSE. N PRICE CUTS." kart metnindeki indirim sayısıyla aynı kalır (Lee: 430.000 → 429.999 adımı düşer, 10 adım / 9 indirim; stüdyonun örnek projesi de böyle). Görevdeki kuraldan tek sapma bu.
+- **Doğrulama:** geçici `%TEMP%\fredpull_studio_validate.py` (`sys.path`'e stüdyo kökü eklenir, `engine.project.validate`, `ProjectError` yakalanır), stüdyo kökünde `PYTHONUTF8=1` ile. Hatalar "2. sahne / focus: …" biçiminde listelenir; hata varsa render başlamaz.
+- **Stüdyoda render al:** önce proje oluşturur ve doğrular, süreyi tahmin edip sorar (render ≈ video süresi × 5), sonra `python -m engine.cli render projects\{name}.json --progress-json`. `progress` olayları ilerleme çubuğuna (`(scene + frame/total) / scenes`), `output` yolları toplanır, `done` gelince çıktı klasörü Explorer'da açılır, `error` mesaj olarak gösterilir. Ana "İptal" süreci (ffmpeg dahil süreç ağacı) sonlandırır. Stüdyo çıktıları `<stüdyo>\out\{name}\{tarih-saat}\` altında: `01_state_map.mp4 …` ve `birlesik.mp4`.
+- Log: `out\log_studio.txt` (proje yolu, doğrulama, uyarılar, render süresi).
 
 ## Çıktılar (`out\`)
 - `ranking_XX.csv` — tüm sütunlar + `reading` + `house_card`
@@ -123,6 +136,9 @@ Doğrulama: fotoğraf adresi/konum çıkarma, fiyat adımları, KML (geçerli XM
 
 ### 2026-09-24 — fiyat artışı ve müteahhit stoku düzeltmesi
 Kullanıcı 9 ilçelik toplamayı (Charlotte, Collier, Highlands, Lee, Osceola, Pasco, Polk, St. Lucie, Walton; otomatik bant) bitirdikten sonra istedi. Kayıtlı kartlar yeni kurallarla (ham tarihçeden, salt okunur) yeniden hesaplandı: **Collier** eski kartı `13 Aralık 2024'te 599.000 $'a çıktı, 6 indirimle 600.000 $` idi (indirimlerden sonra artırılmış) → artık en sona atılıyor, yeni seçim 427 Torrey Pines Pt. **Walton** seçimi `162 Channel Shoal Dr Lot 2` (2024 yapımı arsa ilanı) → artık eleniyor. Diğer 7 ilçenin kartı aynı. Bu iki ilçe yeniden toplanmalı (Walton'da elenen adayın yerine 6. en eski ilan girer; bu yalnızca yeniden toplamayla bulunur). 1.000 $'lık küçük artışlar da "artırılmış" sayılıyor (ör. Highlands 264.000 → 265.000); gerekirse artış eşiği ayrı yükseltilebilir.
+
+### 2026-09-24 — Harita Stüdyosu projesi dışa aktarma ve tek tıkla render
+`FredPull_TASK_StudyoExport.md` uygulandı (görev dosyası kullanıcının dediği İndirilenler'de değil `bin\Debug\net8.0-windows\` altındaydı). Önkoşul (stüdyoda marka dosyası + county_focus) tamamdı. Kabul testi FredPull arayüzünden ("Stüdyoda render al") yapıldı: `out\metinler_FL.csv` (10 ilçe: Lee, Charlotte, Pasco, Polk, St. Lucie, Miami-Dade, Collier, Walton, Osceola, Highlands; Miami-Dade daire modunda) → `harita-studyosu\projects\FL_20260924.json`, **21 sahne** (1 + 10 + 10), stüdyo doğrulaması `[]`, uyarı yok. Lee price_ladder: history 2024-08-15 / 580.000 → … → 410.000 (10 adım; 430.000 → 429.999 birleşti), paid 310.000 / 2017; videoda "ONE HOUSE. NINE PRICE CUTS.", 770 gün. **Render 16 dk 13 sn** (bu bilgisayarda video süresinin ~5,9 katı), 22 dosya (21 sahne + `birlesik.mp4` 2:46, 1920x1080, 30 fps, 20,5 MB) → `harita-studyosu\out\FL_20260924\20260924-162405\`; çıktı klasörü Explorer'da açıldı.
 
 ## Açık konular
 - Claude ilan toplayıcıyı Redfin'e karşı kendisi çalıştırmaz; canlı çalıştırmaları kullanıcı yapar, Claude `out\log_listings.txt` ve `out\listings_XX.json`'u okuyup değerlendirir. md'deki kabul testi (Bant `200-450`) henüz çalıştırılmadı: Florida → Lee County, "Müstakil ev", Bant `200-450`, "Ev kartlarını topla" (403 sürerse "Açık Chrome'a bağlan (9222)" ile).

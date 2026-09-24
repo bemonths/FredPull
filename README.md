@@ -30,6 +30,12 @@ Her ilçe için "aylardır satılamayan tek bir ev" seçer. Tabloda ilçeleri se
 - Sonuç sağ panelin en üstünde "EV KARTI" olarak görünür; ranking_XX.csv'ye house_card sütunu eklenir.
 - Redfin engellerse ("Access Denied" / 403) 60 sn bekleyip bir kez daha dener, olmazsa ilçeyi atlar ve adresi log_listings.txt'e yazar.
 
+## Harita Stüdyosu (video haritaları)
+Üçüncü satırdaki "Harita Stüdyosu" klasörü otomatik bulunur (FredPull\harita-studyosu); değilse "Seç…".
+- out\metinler_XX.csv (senaryodan: order, fips, county, focus_sub, focus_stat) videodaki ilçe sırasını ve etiket metinlerini verir. Yoksa tabloda seçili ilçeler kullanılır.
+- "Stüdyo projesi oluştur": giriş haritası + her ilçe için yakınlaşma ve fiyat merdiveni sahneleri olan projeyi stüdyonun projects klasörüne yazar ve stüdyoya doğrulatır. Stüdyo arayüzünde "Proje aç…" listesinde görünür.
+- "Stüdyoda render al": projeyi oluşturur, render'ı başlatır (ilerleme alt çubukta, "İptal" durdurur), bitince çıktı klasörünü açar.
+
 ## Ev detayları
 Tabloda satıra çift tıkla ya da "Ev detayları": adaylar, fiyat geçmişi ve grafiği, referans fotoğraflar.
 - "Bu evi seç": kart metnine başka bir adayı koyar (listings dosyaları ve ranking güncellenir).
