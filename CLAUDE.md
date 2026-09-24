@@ -85,7 +85,13 @@ Tabloda satıra çift tık ya da "Ev detayları" → o ilçenin kartı (modal de
 - JSON'dan okunan kartta `Chosen` adaylardaki aynı nesneye bağlanır (`LoadListings`), yoksa sonradan eklenen konum/fotoğraf seçilen evde görünmezdi.
 
 ## Harita Stüdyosu (`StudioExport`)
-Video haritalarını üreten ayrı araç: https://github.com/bemonths/harita-studyosu (bu bilgisayarda `FredPull\harita-studyosu`, FredPull deposunun dışında: `.git/info/exclude`). Şema ve komut satırı stüdyonun `docs\ENTEGRASYON.md` §5-6'sında.
+Video haritalarını üreten ayrı araç: https://github.com/bemonths/harita-studyosu. Şema ve komut satırı stüdyonun `docs\ENTEGRASYON.md` §5-6'sında. İki proje bu bilgisayarda kardeş klasörlerde, ayrı depolar olarak durur (karışmasın diye 2026-09-24'te ayrıldı):
+```
+C:\Users\1\source\repos\FredPull\
+├─ FredpullApp\       ← bu depo (bemonths/FredPull); veriler bin\Debug\net8.0-windows\ altında
+└─ harita-studyosu\   ← stüdyo deposu (bemonths/harita-studyosu), kendi AGENTS.md'si var
+```
+Stüdyo deposunda iş yapma: FredPull yalnızca oraya `projects\{ST}_{yyyyMMdd}[_n].json` yazar (stüdyonun `.gitignore`'unda) ve `engine.cli`'yi çalıştırır; render çıktıları stüdyonun `out\` klasörüne gider.
 - **Klasör:** exe yanındaki `fredpull_settings.json` (`StudioDir`). Boşsa/geçersizse exe'den yukarı doğru `harita-studyosu` aranır. Geçerli sayılması için `engine\cli.py` ve `.venv\Scripts\python.exe` olmalı; "Seç…" ile değiştirilir.
 - **Metin dosyası** `out\metinler_{ST}.csv` (`order,fips,county,focus_sub,focus_stat`, UTF-8, tırnaklı alanlar): videodaki county sırası ve etiketin iki satırı; senaryo sohbetinden gelir. Yoksa tabloda seçili satırlar ekrandaki sırayla alınır (alt satır seçilen evin şehri, istatistik boş) ve kullanıcıya söylenir.
 - **Stüdyo projesi oluştur:** `<stüdyo>\projects\{ST}_{yyyyMMdd}.json` (ad dosya adıyla aynı; varsa `_2`, `_3`). Sahneler: `state_map` (subtitle `"{N} COUNTIES  ·  {AY} {YIL} DATA"`, FRED veri ayı İngilizce; `assign` eyaletin bütün county'leri, sinyal → `buyers/sellers/price/weak/stable/hot`, Küçük taban yazılmaz; `focus` null; kategori/accent yazılmaz) + her metin satırı için `county_focus` (aynı `assign`, `focus`=FIPS, `focus_sub`/`focus_stat` metinden) ve seçilen ev varsa `price_ladder` (kicker `"{İLÇE ADI}  ·  {ŞEHİR}"` büyük harf, title boş, subtitle `"4 bedrooms  ·  built 2000  ·  listed August 2024"` / daire `"2-bedroom condo  ·  …"`, history, today, paid/paid_year). Ev kartı yoksa price_ladder atlanır ve uyarı verilir. JSON BOM'suz (Python `json.load` BOM'u reddeder).
@@ -139,6 +145,9 @@ Kullanıcı 9 ilçelik toplamayı (Charlotte, Collier, Highlands, Lee, Osceola, 
 
 ### 2026-09-24 — Harita Stüdyosu projesi dışa aktarma ve tek tıkla render
 `FredPull_TASK_StudyoExport.md` uygulandı (görev dosyası kullanıcının dediği İndirilenler'de değil `bin\Debug\net8.0-windows\` altındaydı). Önkoşul (stüdyoda marka dosyası + county_focus) tamamdı. Kabul testi FredPull arayüzünden ("Stüdyoda render al") yapıldı: `out\metinler_FL.csv` (10 ilçe: Lee, Charlotte, Pasco, Polk, St. Lucie, Miami-Dade, Collier, Walton, Osceola, Highlands; Miami-Dade daire modunda) → `harita-studyosu\projects\FL_20260924.json`, **21 sahne** (1 + 10 + 10), stüdyo doğrulaması `[]`, uyarı yok. Lee price_ladder: history 2024-08-15 / 580.000 → … → 410.000 (10 adım; 430.000 → 429.999 birleşti), paid 310.000 / 2017; videoda "ONE HOUSE. NINE PRICE CUTS.", 770 gün. **Render 16 dk 13 sn** (bu bilgisayarda video süresinin ~5,9 katı), 22 dosya (21 sahne + `birlesik.mp4` 2:46, 1920x1080, 30 fps, 20,5 MB) → `harita-studyosu\out\FL_20260924\20260924-162405\`; çıktı klasörü Explorer'da açıldı.
+
+### 2026-09-24 — klasör ayrımı
+Kullanıcı isteğiyle uygulama (git deposu ve `bin\` içindeki bütün veriler dahil) `FredPull\` kökünden `FredPull\FredpullApp\` altına taşındı; `harita-studyosu` kökte ayrı klasör olarak kaldı. GitHub deposunun içeriği değişmedi (dosyalar yine depo kökünde); yalnızca yerel yol değişti. Eskiden stüdyo FredPull proje klasörünün içindeydi ve SDK projesi onun dosyalarını (`.venv` dahil) `None` öğesi olarak projeye katıyordu; artık katmıyor. `.git/info/exclude`'daki `/harita-studyosu/` satırı kaldırıldı. Stüdyo klasörü ayarı (`fredpull_settings.json`) geçerli kaldı; `FindStudio` yeni yerden de buluyor (exe'den 4 üst klasör). Visual Studio'da `FredPull\FredpullApp\FredPull.sln` açılır. Stüdyonun `.gitignore`'una FredPull projeleri eklendi (stüdyo deposu `52bdb51`).
 
 ## Açık konular
 - Claude ilan toplayıcıyı Redfin'e karşı kendisi çalıştırmaz; canlı çalıştırmaları kullanıcı yapar, Claude `out\log_listings.txt` ve `out\listings_XX.json`'u okuyup değerlendirir. md'deki kabul testi (Bant `200-450`) henüz çalıştırılmadı: Florida → Lee County, "Müstakil ev", Bant `200-450`, "Ev kartlarını topla" (403 sürerse "Açık Chrome'a bağlan (9222)" ile).
