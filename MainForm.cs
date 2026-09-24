@@ -517,7 +517,7 @@ public partial class MainForm : Form
                 return null;
             }
             texts = sel.Select((r, i) => new StudioExport.TextRow(i + 1, r.County.Fips, r.County.Name,
-                _cards.TryGetValue(r.County.Fips, out var c) && c.Chosen != null ? c.Chosen.City : "", "")).ToList();
+                _cards.TryGetValue(r.County.Fips, out var c) && c.Chosen != null ? StudioExport.CityName(c.Chosen.City) : "", "")).ToList();
             warnings.Insert(0, $"out\\metinler_{state}.csv yok: tablodaki {sel.Count} seçili ilçe ekrandaki sırayla alındı, istatistik satırı boş.");
         }
         if (texts.Count == 0)

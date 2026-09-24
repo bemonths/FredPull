@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace FredPull;
 
@@ -167,10 +168,13 @@ public static class StudioExport
             var last = history[^1].Date;
             var ladderToday = today < last ? last : today;
             bool paid = h.LastSalePrice.HasValue;
+            bool condo = card.Mode == "Daire";
             scenes.Add(Scene("price_ladder", new JsonObject
             {
-                ["kicker"] = $"{countyName}  ·  {h.City}".ToUpperInvariant(),
-                ["subtitle"] = Subtitle(h, card.Mode == "Daire"),
+                ["kicker"] = $"{countyName}  ·  {CityName(h.City)}".ToUpperInvariant(),
+                // Evde boş bırakılır (stüdyo "ONE HOUSE. N PRICE CUTS." yazar); dairede aynı kuralla "ONE CONDO. …"
+                ["title"] = condo ? CondoTitle(history) : "",
+                ["subtitle"] = Subtitle(h, condo),
                 ["history"] = new JsonArray(history.Select(s => (JsonNode)new JsonObject
                 {
                     ["date"] = s.Date.ToString("yyyy-MM-dd", Inv),
@@ -210,6 +214,34 @@ public static class StudioExport
         foreach (var s in byDay)
             if (steps.Count == 0 || Math.Abs(s.Price - steps[^1].Price) >= RedfinListingPicker.MinCut) steps.Add(s);
         return steps;
+    }
+
+    static readonly string[] NumWords = { "ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN",
+        "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN", "TWENTY" };
+
+    /// Stüdyonun auto_title mantığı (scenes/price_ladder.py), yalnız "HOUSE" yerine "CONDO": indirim = bir öncekinden
+    /// düşük fiyat, 20'ye kadar İngilizce kelime, tek indirimde CUT.
+    public static string CondoTitle(List<PriceCut> history)
+    {
+        int n = history.Zip(history.Skip(1), (a, b) => b.Price < a.Price).Count(d => d);
+        return $"ONE CONDO. {(n <= 20 ? NumWords[n] : n.ToString(Inv))} PRICE {(n == 1 ? "CUT" : "CUTS")}.";
+    }
+
+    /// Redfin'in yazımı → yerel yazım. Bilinenler tabloda; genel kural: tek başına "Saint" ya da "St" → "St."
+    static readonly Dictionary<string, string> CityNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Port St Lucie"] = "Port St. Lucie",
+        ["Saint Cloud"] = "St. Cloud",
+        ["Saint Petersburg"] = "St. Petersburg",
+        ["Saint Augustine"] = "St. Augustine",
+    };
+
+    static readonly Regex SaintWord = new(@"\b(?:Saint|St)\b\.?", RegexOptions.IgnoreCase);
+
+    public static string CityName(string city)
+    {
+        var c = city.Trim();
+        return CityNames.TryGetValue(c, out var known) ? known : SaintWord.Replace(c, "St.");
     }
 
     /// "4 bedrooms  ·  built 2000  ·  listed August 2024"; daire: "2-bedroom condo  ·  built ..."; eksik parça atlanır.
