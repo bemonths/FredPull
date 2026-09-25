@@ -78,6 +78,7 @@ namespace FredPull
             _tStat = new DataGridViewTextBoxColumn();
             _animButtons = new FlowLayoutPanel();
             _btnStudioOpenOut = new Button();
+            _lblStudioUnsupported = new Label();
             _grpIntro = new GroupBox();
             _introLayout = new TableLayoutPanel();
             _introFields = new TableLayoutPanel();
@@ -89,6 +90,8 @@ namespace FredPull
             _btnIntroCopy = new Button();
             _btnIntroTemplate = new Button();
             _btnIntroReset = new Button();
+            _lblIntroTemplate = new Label();
+            _btnIntroTemplateReset = new Button();
             _lblIntroWarn = new Label();
             _txtIntroPreview = new TextBox();
             _split = new SplitContainer();
@@ -827,6 +830,7 @@ namespace FredPull
             _animButtons.Controls.Add(_btnStudioProject);
             _animButtons.Controls.Add(_btnStudioRender);
             _animButtons.Controls.Add(_btnStudioOpenOut);
+            _animButtons.Controls.Add(_lblStudioUnsupported);
             _animButtons.Dock = DockStyle.Fill;
             _animButtons.Location = new Point(3, 655);
             _animButtons.Name = "_animButtons";
@@ -844,6 +848,18 @@ namespace FredPull
             _btnStudioOpenOut.Text = "Çıktı klasörünü aç";
             _btnStudioOpenOut.UseVisualStyleBackColor = true;
             _btnStudioOpenOut.Click += BtnStudioOpenOut_Click;
+            //
+            // _lblStudioUnsupported
+            //
+            _lblStudioUnsupported.AutoSize = true;
+            _lblStudioUnsupported.ForeColor = Color.FromArgb(190, 30, 30);
+            _lblStudioUnsupported.Location = new Point(416, 8);
+            _lblStudioUnsupported.Margin = new Padding(8, 8, 3, 0);
+            _lblStudioUnsupported.Name = "_lblStudioUnsupported";
+            _lblStudioUnsupported.Size = new Size(300, 15);
+            _lblStudioUnsupported.TabIndex = 3;
+            _lblStudioUnsupported.Text = "Harita Stüdyosu yalnızca ana karadaki 48 eyaleti destekler";
+            _lblStudioUnsupported.Visible = false;
             //
             // _grpIntro
             //
@@ -937,8 +953,10 @@ namespace FredPull
             //
             _introButtons.AutoSize = true;
             _introButtons.Controls.Add(_btnIntroCopy);
-            _introButtons.Controls.Add(_btnIntroTemplate);
             _introButtons.Controls.Add(_btnIntroReset);
+            _introButtons.Controls.Add(_lblIntroTemplate);
+            _introButtons.Controls.Add(_btnIntroTemplate);
+            _introButtons.Controls.Add(_btnIntroTemplateReset);
             _introButtons.Dock = DockStyle.Fill;
             _introButtons.Location = new Point(3, 67);
             _introButtons.Name = "_introButtons";
@@ -959,10 +977,10 @@ namespace FredPull
             // _btnIntroTemplate
             //
             _btnIntroTemplate.AutoSize = true;
-            _btnIntroTemplate.Location = new Point(84, 3);
+            _btnIntroTemplate.Location = new Point(355, 3);
             _btnIntroTemplate.Name = "_btnIntroTemplate";
             _btnIntroTemplate.Size = new Size(85, 25);
-            _btnIntroTemplate.TabIndex = 1;
+            _btnIntroTemplate.TabIndex = 3;
             _btnIntroTemplate.Text = "Şablonu aç";
             _btnIntroTemplate.UseVisualStyleBackColor = true;
             _btnIntroTemplate.Click += BtnIntroTemplate_Click;
@@ -971,14 +989,36 @@ namespace FredPull
             //
             _btnIntroReset.AutoSize = true;
             _btnIntroReset.Enabled = false;
-            _btnIntroReset.Location = new Point(175, 3);
-            _btnIntroReset.Margin = new Padding(20, 3, 3, 3);
+            _btnIntroReset.Location = new Point(84, 3);
             _btnIntroReset.Name = "_btnIntroReset";
             _btnIntroReset.Size = new Size(110, 25);
-            _btnIntroReset.TabIndex = 2;
+            _btnIntroReset.TabIndex = 1;
             _btnIntroReset.Text = "Varsayılana dön";
             _btnIntroReset.UseVisualStyleBackColor = true;
             _btnIntroReset.Click += BtnIntroReset_Click;
+            //
+            // _lblIntroTemplate
+            //
+            _lblIntroTemplate.AutoSize = true;
+            _lblIntroTemplate.ForeColor = SystemColors.GrayText;
+            _lblIntroTemplate.Location = new Point(220, 8);
+            _lblIntroTemplate.Margin = new Padding(23, 8, 3, 0);
+            _lblIntroTemplate.Name = "_lblIntroTemplate";
+            _lblIntroTemplate.Size = new Size(110, 15);
+            _lblIntroTemplate.TabIndex = 2;
+            _lblIntroTemplate.Text = "Şablon: varsayılan";
+            //
+            // _btnIntroTemplateReset
+            //
+            _btnIntroTemplateReset.AutoSize = true;
+            _btnIntroTemplateReset.Enabled = false;
+            _btnIntroTemplateReset.Location = new Point(446, 3);
+            _btnIntroTemplateReset.Name = "_btnIntroTemplateReset";
+            _btnIntroTemplateReset.Size = new Size(170, 25);
+            _btnIntroTemplateReset.TabIndex = 4;
+            _btnIntroTemplateReset.Text = "Şablonu varsayılana döndür";
+            _btnIntroTemplateReset.UseVisualStyleBackColor = true;
+            _btnIntroTemplateReset.Click += BtnIntroTemplateReset_Click;
             //
             // _lblIntroWarn
             //
@@ -1102,6 +1142,7 @@ namespace FredPull
         private Button _btnStudioProject;
         private Button _btnStudioRender;
         private Button _btnStudioOpenOut;
+        private Label _lblStudioUnsupported;
 
         // Video üretimi: intro prompt'u (Flow)
         private GroupBox _grpIntro;
@@ -1115,6 +1156,8 @@ namespace FredPull
         private Button _btnIntroCopy;
         private Button _btnIntroTemplate;
         private Button _btnIntroReset;
+        private Label _lblIntroTemplate;
+        private Button _btnIntroTemplateReset;
         private Label _lblIntroWarn;
         private TextBox _txtIntroPreview;
 

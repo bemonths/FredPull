@@ -33,7 +33,7 @@ Her ilçe için "aylardır satılamayan tek bir ev" seçer. Tabloda ilçeleri se
 
 ## Video üretimi sekmesi
 ### Animasyon — Harita Stüdyosu (video haritaları)
-"Harita Stüdyosu klasörü" otomatik bulunur (FredPull\harita-studyosu); değilse "Seç…".
+"Harita Stüdyosu klasörü" otomatik bulunur (FredPull\harita-studyosu); değilse "Seç…". Stüdyo yalnızca ana karadaki 48 eyaleti çizer; Alaska, Hawaii ve DC'de düğmeler pasiftir.
 - out\metinler_XX.csv (senaryodan: order, fips, county, focus_sub, focus_stat) videodaki ilçe sırasını ve etiket metinlerini verir; içeriği sekmedeki tabloda görünür. "Metin dosyası seç…" başka yerdeki bir CSV'yi bu adla out\ klasörüne kopyalar (varsa üzerine yazmayı sorar). Dosya yoksa "İlçeler" tablosunda seçili ilçeler kullanılır.
 - "Stüdyo projesi oluştur": giriş haritası + her ilçe için yakınlaşma ve fiyat merdiveni sahneleri olan projeyi stüdyonun projects klasörüne yazar ve stüdyoya doğrulatır. Stüdyo arayüzünde "Proje aç…" listesinde görünür.
 - "Stüdyoda render al": projeyi oluşturur, render'ı başlatır (ilerleme alt çubukta, "İptal" durdurur), bitince çıktı klasörünü açar. "Çıktı klasörünü aç" son render'ın klasörünü sonradan da açar.
@@ -41,7 +41,8 @@ Her ilçe için "aylardır satılamayan tek bir ev" seçer. Tabloda ilçeleri se
 ### Intro prompt'u — Flow
 Google Flow'a yapıştırılacak 10 saniyelik harita intro'su prompt'u, seçili eyalete göre hazır gelir.
 - "Komşular" ve "Pin şehri" PromptData\states_intro.json'dan dolar; değiştirirsen o eyalet için hatırlanır (exe yanında intro_overrides.json). "Varsayılana dön" eski hâline getirir.
-- Önizleme kutusu PromptData\intro_prompt_template.txt'nin doldurulmuş hâlidir; "Kopyala" panoya alır, "Şablonu aç" şablonu düzenleyicide açar (kaydedince önizleme kendiliğinden yenilenir).
+- Önizleme kutusu şablonun doldurulmuş hâlidir; "Kopyala" panoya alır.
+- "Şablonu aç" şablonun sana ait kopyasını (exe yanında user_intro_prompt_template.txt; yoksa varsayılandan oluşturulur) düzenleyicide açar; kaydedince önizleme kendiliğinden yenilenir ve program kapanıp açılsa da kalır. "Şablonu varsayılana döndür" bu kopyayı siler.
 - Doldurulmamış bir [YER TUTUCU] kalırsa ya da eyalet dosyada yoksa (Alaska, Hawaii, DC) kırmızı uyarı çıkar; kutuları elle doldur.
 
 ## Ev detayları

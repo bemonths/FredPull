@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
@@ -318,7 +319,8 @@ public partial class MainForm : Form
         Busy = busy;
         _btnFetch.Enabled = !busy; _btnLoad.Enabled = !busy; _cbState.Enabled = !busy; _btnRedfin.Enabled = !busy;
         _btnAttachRedfin.Enabled = !busy; _btnHouseCards.Enabled = !busy; _cbHouseMode.Enabled = !busy; _txtBand.Enabled = !busy; _chkCdp.Enabled = !busy;
-        _btnStudioBrowse.Enabled = !busy; _btnStudioProject.Enabled = !busy; _btnStudioRender.Enabled = !busy; _btnTextsPick.Enabled = !busy;
+        _btnStudioBrowse.Enabled = !busy; _btnTextsPick.Enabled = !busy;
+        UpdateStudioSupport();
         _btnCancel.Enabled = busy;
         if (!busy) _progress.Value = 0;
     }
@@ -664,40 +666,81 @@ public partial class MainForm : Form
     string? _introTemplate;
     string? _introFileError;
     bool _fillingIntro;                 // kutular programdan doldurulurken değişiklik kaydedilmesin
-    FileSystemWatcher? _promptWatcher;
+    FileSystemWatcher? _promptWatcher;  // PromptData\ (varsayılan şablon, eyalet verisi)
+    FileSystemWatcher? _userTemplateWatcher;   // exe yanındaki kullanıcı şablonu
     readonly System.Windows.Forms.Timer _promptReload = new() { Interval = 300 };
 
-    string OverridesPath => Path.Combine(_baseDir, IntroPrompt.OverridesFile);
+    /// Harita Stüdyosu yalnızca ana karadaki 48 eyaletin haritasını çizer.
+    static readonly HashSet<string> StudioUnsupported = new() { "AK", "HI", "DC" };
+    bool StudioSupported => !StudioUnsupported.Contains(SelectedAbbr);
 
-    /// Kullanıcı düzeltmelerini okur; şablon ve eyalet verisi değişince (dışarıdan düzenleme) önizlemeyi yeniler.
+    string OverridesPath => Path.Combine(_baseDir, IntroPrompt.OverridesFile);
+    string DefaultTemplatePath => Path.Combine(IntroPrompt.Dir(_baseDir), IntroPrompt.TemplateFile);
+    string UserTemplatePath => Path.Combine(_baseDir, IntroPrompt.UserTemplateFile);
+
+    /// Kullanıcı düzeltmelerini okur; şablonlar ve eyalet verisi değişince (dışarıdan düzenleme) önizlemeyi yeniler.
     void SetupVideoTab()
     {
         _introOverrides = IntroPrompt.LoadOverrides(OverridesPath);
         // Düzenleyiciler kaydederken birkaç olay üretir ve dosya bir an kilitli olabilir: 300 ms sonra bir kez oku
         _promptReload.Tick += (_, _) => { _promptReload.Stop(); RefreshIntro(reloadFiles: true); };
         var dir = IntroPrompt.Dir(_baseDir);
-        if (!Directory.Exists(dir)) return;
-        _promptWatcher = new FileSystemWatcher(dir)
+        if (Directory.Exists(dir)) _promptWatcher = WatchPromptFiles(dir, "*");
+        _userTemplateWatcher = WatchPromptFiles(_baseDir, IntroPrompt.UserTemplateFile);
+    }
+
+    FileSystemWatcher WatchPromptFiles(string dir, string filter)
+    {
+        var w = new FileSystemWatcher(dir, filter)
         {
             SynchronizingObject = this,
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
             EnableRaisingEvents = true,
         };
-        _promptWatcher.Changed += PromptFileChanged;
-        _promptWatcher.Created += PromptFileChanged;
-        _promptWatcher.Renamed += PromptFileChanged;
+        w.Changed += PromptFileChanged;
+        w.Created += PromptFileChanged;
+        w.Deleted += PromptFileChanged;
+        w.Renamed += PromptFileChanged;
+        return w;
     }
+
+    static bool IsPromptFile(string? name) =>
+        name is IntroPrompt.TemplateFile or IntroPrompt.StatesFile or IntroPrompt.UserTemplateFile;
 
     void PromptFileChanged(object? sender, FileSystemEventArgs e)
     {
-        if (e.Name is IntroPrompt.TemplateFile or IntroPrompt.StatesFile) { _promptReload.Stop(); _promptReload.Start(); }
+        // Bazı düzenleyiciler geçici dosyaya yazıp yeniden adlandırır: eski ya da yeni ad bizimse yeniden oku
+        if (IsPromptFile(e.Name) || (e is RenamedEventArgs r && IsPromptFile(r.OldName))) { _promptReload.Stop(); _promptReload.Start(); }
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _promptWatcher?.Dispose();
+        _userTemplateWatcher?.Dispose();
         _promptReload.Dispose();
         base.OnFormClosed(e);
+    }
+
+    /// Pano başka bir programda açıkken SetText ExternalException atıp programı düşürüyordu: 10 deneme × 100 ms, olmazsa durum satırına yazılır.
+    internal static bool TryCopy(string text, Label status)
+    {
+        try
+        {
+            Clipboard.SetDataObject(text, true, 10, 100);
+            return true;
+        }
+        catch (ExternalException)
+        {
+            status.Text = "Pano başka bir program tarafından kullanılıyor, tekrar dene";
+            return false;
+        }
+    }
+
+    /// Alaska, Hawaii ve DC'de stüdyo düğmeleri pasif, yanında açıklama.
+    void UpdateStudioSupport()
+    {
+        _btnStudioProject.Enabled = _btnStudioRender.Enabled = !Busy && StudioSupported;
+        _lblStudioUnsupported.Visible = !StudioSupported;
     }
 
     void MainTabs_SelectedIndexChanged(object? sender, EventArgs e)
@@ -711,6 +754,7 @@ public partial class MainForm : Form
         RefreshTexts();
         RefreshIntro(reloadFiles);
         UpdateStudioOpenOut();
+        UpdateStudioSupport();
     }
 
     string TextsPath => Path.Combine(_outDir, $"metinler_{SelectedAbbr}.csv");
@@ -798,13 +842,19 @@ public partial class MainForm : Form
             _introStates = null;
             errors.Add($"{IntroPrompt.StatesFile} okunamadı: {ex.Message}");
         }
-        try { _introTemplate = IntroPrompt.LoadTemplate(Path.Combine(dir, IntroPrompt.TemplateFile)); }
+        // Kullanıcı kopyası varsa o, yoksa PromptData'daki varsayılan
+        bool user = File.Exists(UserTemplatePath);
+        var templatePath = user ? UserTemplatePath : DefaultTemplatePath;
+        try { _introTemplate = IntroPrompt.LoadTemplate(templatePath); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _introTemplate = null;
-            errors.Add($"{IntroPrompt.TemplateFile} okunamadı: {ex.Message}");
+            errors.Add($"{Path.GetFileName(templatePath)} okunamadı: {ex.Message}");
         }
-        _introFileError = errors.Count == 0 ? null : string.Join("\n", errors) + $"\nBeklenen klasör: {dir}";
+        _lblIntroTemplate.Text = user ? $"Şablon: kendi kopyan ({IntroPrompt.UserTemplateFile})" : "Şablon: varsayılan";
+        _lblIntroTemplate.ForeColor = user ? SystemColors.ControlText : SystemColors.GrayText;
+        _btnIntroTemplateReset.Enabled = user;
+        _introFileError = errors.Count == 0 ? null : string.Join("\n", errors) + $"\nBeklenen yer: {Path.GetDirectoryName(templatePath)}";
     }
 
     /// Kutular: önce kullanıcının bu eyalet için kaydettiği değer, yoksa states_intro.json.
@@ -875,20 +925,52 @@ public partial class MainForm : Form
     void BtnIntroCopy_Click(object? sender, EventArgs e)
     {
         if (_txtIntroPreview.TextLength == 0) return;
-        Clipboard.SetText(_txtIntroPreview.Text);
-        _status.Text = $"Intro prompt'u kopyalandı ({IntroStateName(SelectedAbbr)})";
+        if (TryCopy(_txtIntroPreview.Text, _status))
+            _status.Text = $"Intro prompt'u kopyalandı ({IntroStateName(SelectedAbbr)})";
     }
 
+    /// Kullanıcı kopyasını açar; yoksa varsayılan şablondan oluşturur. PromptData'daki kopya her derlemede
+    /// depodan yenilendiği için orada yapılan düzenleme kaybolurdu.
     void BtnIntroTemplate_Click(object? sender, EventArgs e)
     {
-        var path = Path.Combine(IntroPrompt.Dir(_baseDir), IntroPrompt.TemplateFile);
-        if (!File.Exists(path))
+        var path = UserTemplatePath;
+        try
         {
-            MessageBox.Show($"Şablon bulunamadı:\n{path}", "Intro prompt'u", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (!File.Exists(path))
+            {
+                if (!File.Exists(DefaultTemplatePath))
+                {
+                    MessageBox.Show($"Varsayılan şablon bulunamadı:\n{DefaultTemplatePath}", "Intro prompt'u", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                File.Copy(DefaultTemplatePath, path);
+                RefreshIntro(reloadFiles: true);
+                _status.Text = $"Şablonun kendi kopyası oluşturuldu: {path}";
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show($"Şablon kopyası oluşturulamadı:\n{ex.Message}", "Intro prompt'u", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
         try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
         catch (System.ComponentModel.Win32Exception) { Process.Start("notepad.exe", $"\"{path}\""); }   // .txt ilişkisi yoksa
+    }
+
+    void BtnIntroTemplateReset_Click(object? sender, EventArgs e)
+    {
+        var path = UserTemplatePath;
+        if (!File.Exists(path)) { RefreshIntro(reloadFiles: true); return; }
+        if (MessageBox.Show($"Şablonda yaptığın değişiklikler silinecek ({IntroPrompt.UserTemplateFile}); önizleme varsayılan şablona döner. Devam edilsin mi?",
+                "Şablonu varsayılana döndür", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        try { File.Delete(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show($"{IntroPrompt.UserTemplateFile} silinemedi (düzenleyicide açık olabilir):\n{ex.Message}", "Intro prompt'u", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        RefreshIntro(reloadFiles: true);
+        _status.Text = "Şablon varsayılana döndü.";
     }
 
     // ---------- ev detay formu ----------

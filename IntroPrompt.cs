@@ -6,12 +6,14 @@ using System.Text.RegularExpressions;
 
 namespace FredPull;
 
-/// Flow intro prompt'u: eyalet verisi (PromptData\states_intro.json), şablon (PromptData\intro_prompt_template.txt)
-/// ve kullanıcının eyalet bazındaki düzeltmeleri (exe yanında intro_overrides.json).
+/// Flow intro prompt'u: eyalet verisi (PromptData\states_intro.json), şablon (PromptData\intro_prompt_template.txt;
+/// exe yanında user_intro_prompt_template.txt varsa o) ve kullanıcının eyalet bazındaki düzeltmeleri (exe yanında intro_overrides.json).
 public static class IntroPrompt
 {
     public const string StatesFile = "states_intro.json";
     public const string TemplateFile = "intro_prompt_template.txt";
+    /// Kullanıcının düzenlediği şablon. PromptData her derlemede depodan yenilendiği için orada değil, exe yanında durur.
+    public const string UserTemplateFile = "user_intro_prompt_template.txt";
     public const string OverridesFile = "intro_overrides.json";
 
     static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };

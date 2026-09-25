@@ -15,7 +15,7 @@ Only the exact [STATE] silhouette cleanly lifts upward as one solid object with 
 Everything except [STATE] fades completely into a deep navy background until [STATE] is the only visible object in the frame. [STATE] keeps its road networks, land detail and glowing orange-red outline. The camera follows it gently and settles.
 
 0:08 – 0:10
-The camera comes to a complete rest. A glossy, dimensional crimson location marker with an enamel finish and a soft highlight drops onto land at the location of [PIN CITY] and casts a small shadow. A thin elegant white locator line extends outward to the right, with a faint golden light streak gliding along it. The label [STATE IN CAPITALS] appears letter by letter in a wide-tracked classic Roman serif in warm white. The label must read exactly [STATE IN CAPITALS].
+The camera comes to a complete rest. A glossy, dimensional crimson location marker with an enamel finish and a soft highlight drops onto land at the location of [PIN CITY], [STATE] and casts a small shadow. A thin elegant white locator line extends outward to the right, with a faint golden light streak gliding along it. The label [STATE IN CAPITALS] appears letter by letter in a wide-tracked classic Roman serif in warm white. The label must read exactly [STATE IN CAPITALS].
 
 Final frame
 A clean, static hero composition of [STATE] alone, centered on the dark navy background, with the marker, the locator line and the [STATE IN CAPITALS] label.

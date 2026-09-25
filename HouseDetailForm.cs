@@ -271,25 +271,20 @@ public partial class HouseDetailForm : Form
     {
         if (Current is not { } a) return;
         var text = Address(a, State);
-        Clipboard.SetText(text);
-        _status.Text = $"Adres panoya kopyalandı: {text}";
+        if (MainForm.TryCopy(text, _status)) _status.Text = $"Adres panoya kopyalandı: {text}";
     }
 
     void BtnCopyCoords_Click(object? sender, EventArgs e)
     {
         if (Current is not { Lat: double lat, Lng: double lng }) return;
         var text = $"{lat.ToString("0.######", Inv)}, {lng.ToString("0.######", Inv)}";
-        Clipboard.SetText(text);
-        _status.Text = $"Koordinat panoya kopyalandı: {text} (Earth Studio aramasına yapıştırılabilir)";
+        if (MainForm.TryCopy(text, _status)) _status.Text = $"Koordinat panoya kopyalandı: {text} (Earth Studio aramasına yapıştırılabilir)";
     }
 
     void BtnCopyCard_Click(object? sender, EventArgs e)
     {
-        if (Card is { Chosen: not null } card)
-        {
-            Clipboard.SetText(card.CardText);
+        if (Card is { Chosen: not null } card && MainForm.TryCopy(card.CardText, _status))
             _status.Text = "Kart metni panoya kopyalandı.";
-        }
     }
 
     async void BtnPhotos_Click(object? sender, EventArgs e)
