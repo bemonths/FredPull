@@ -36,14 +36,18 @@ ABD ilçelerinin (county) konut piyasasını iki kaynaktan okuyup her ilçe içi
 | `FredPull_TASK_EK_EvDetay.md` | 2026-09-24 eki: ev detay formu ve materyal dışa aktarma (tarihsel kayıt). |
 | `StudioExport.cs` | Harita Stüdyosu projesi üretme (state_map + county_focus + price_ladder), stüdyo doğrulaması, komut satırından render. |
 | `FredPull_TASK_StudyoExport.md` | 2026-09-24 görevi: Harita Stüdyosu projesi dışa aktarma ve tek tıkla render (tarihsel kayıt). |
+| `IntroPrompt.cs` | Flow intro prompt'u: eyalet verisi, şablon, doldurma, kalan yer tutucular, kullanıcı düzeltmeleri (`intro_overrides.json`). |
+| `PromptData\` | `states_intro.json` (48 eyalet: abbr, name, neighbors, pin_city) ve `intro_prompt_template.txt`; derlemede exe yanına kopyalanır (csproj `PreserveNewest`). |
+| `FredPull_TASK_VideoUretimi.md` | 2026-09-25 görevi: Video üretimi sekmesi (tarihsel kayıt). |
 
 ## Arayüz
-Üst çubuk iki satır:
+Üst çubuk iki satır (bütün sekmelerde görünür):
 1. Eyalet · ilçe sayısı · FRED API anahtarı · **Verileri çek** · İptal · Son sonucu yükle · out klasörü
 2. Redfin verisini indir · Redfin tarihi · **Redfin'i mevcut sonuca ekle** · Ev kartı: [Müstakil ev / Daire] · Bant (bin $) · ☐ Açık Chrome'a bağlan (9222) · **Ev kartlarını topla** · **Ev detayları**
-3. Harita Stüdyosu: [klasör] · Seç… · **Stüdyo projesi oluştur** · **Stüdyoda render al**
 
-Sol: 10 sütunlu tablo (çoklu seçim açık; Ctrl/Shift, Ctrl+A). Sağ: metrik grafiği (ScottPlot) + bilgi metni. Bilgi metni odaktaki satırı (`CurrentRow`) gösterir; ilçenin ev kartı varsa en üstte "EV KARTI" bölümü çıkar.
+Altında iki sekme (`_mainTabs`):
+- **İlçeler** — Sol: 10 sütunlu tablo (çoklu seçim açık; Ctrl/Shift, Ctrl+A). Sağ: metrik grafiği (ScottPlot) + bilgi metni. Bilgi metni odaktaki satırı (`CurrentRow`) gösterir; ilçenin ev kartı varsa en üstte "EV KARTI" bölümü çıkar.
+- **Video üretimi** — sol "Animasyon — Harita Stüdyosu", sağ "Intro prompt'u — Flow" (ayrıntı aşağıda). Eyalet değişince, açılışta ve sekme her açıldığında yenilenir (`RefreshVideoTab`).
 
 **Arayüz kuralı:** yeni kontrol `MainForm.Designer.cs`'e tasarımcının okuyabileceği biçimde eklenir (lambda yok, olay → isimli metot, `ISupportInitialize` Begin/EndInit). Constructor'da yalnızca veriyle doldurma kalır (`Items`, `SelectedIndex`). `_cbState.SelectedIndexChanged` bilerek constructor'da bağlanır (tasarımcıda bağlanırsa açılışta önbellek iki kez yüklenir).
 
@@ -99,6 +103,14 @@ Stüdyo deposunda iş yapma: FredPull yalnızca oraya `projects\{ST}_{yyyyMMdd}[
 - **Doğrulama:** geçici `%TEMP%\fredpull_studio_validate.py` (`sys.path`'e stüdyo kökü eklenir, `engine.project.validate`, `ProjectError` yakalanır), stüdyo kökünde `PYTHONUTF8=1` ile. Hatalar "2. sahne / focus: …" biçiminde listelenir; hata varsa render başlamaz.
 - **Stüdyoda render al:** önce proje oluşturur ve doğrular, süreyi tahmin edip sorar (render ≈ video süresi × 5), sonra `python -m engine.cli render projects\{name}.json --progress-json`. `progress` olayları ilerleme çubuğuna (`(scene + frame/total) / scenes`), `output` yolları toplanır, `done` gelince çıktı klasörü Explorer'da açılır, `error` mesaj olarak gösterilir. Ana "İptal" süreci (ffmpeg dahil süreç ağacı) sonlandırır. Stüdyo çıktıları `<stüdyo>\out\{name}\{tarih-saat}\` altında: `01_state_map.mp4 …` ve `birlesik.mp4`.
 - Log: `out\log_studio.txt` (proje yolu, doğrulama, uyarılar, render süresi).
+- Arayüzde "Video üretimi" sekmesinin sol grubunda: stüdyo klasörü + Seç…, metin dosyası durumu ve salt okunur tablo (Sıra, County, Şehirler, İstatistik), **Metin dosyası seç…** (seçilen CSV `ReadTexts` ile okunabiliyorsa `out\metinler_{ST}.csv` adıyla kopyalanır, varsa üzerine yazmak sorulur), Stüdyo projesi oluştur, Stüdyoda render al, **Çıktı klasörünü aç** (son başarılı render klasörü, `fredpull_settings.json` → `LastStudioOut`; yoksa pasif). Metin dosyası yoksa proje yine "İlçeler" tablosunda seçili satırlardan kurulur.
+
+## Intro prompt'u (`IntroPrompt`, Video üretimi sekmesinin sağ grubu)
+Google Flow'a yapıştırılan 10 sn'lik harita intro'su prompt'u.
+- **Komşular** ve **Pin şehri** kutuları seçili eyaletin `PromptData\states_intro.json` kaydından dolar. Kullanıcının değiştirdiği değerler eyalet bazında exe yanındaki `intro_overrides.json`'a yazılır (`{"FL": {"Neighbors": …, "PinCity": …}}`, BOM'suz); iki değer de varsayılana dönerse kayıt silinir. **Varsayılana dön** o eyaletin kaydını siler (yalnızca kayıt varken etkin).
+- Önizleme: `PromptData\intro_prompt_template.txt` sırayla `[STATE IN CAPITALS]` → eyalet adı büyük harf, `[STATE]`, `[NEIGHBORS]`, `[PIN CITY]` (kutulardaki değerler kırpılarak) ile doldurulur; satır sonları `\r\n`. Doldurmadan sonra `[...]` biçiminde yer tutucu kalırsa, kutulardan biri boşsa, eyalet dosyada yoksa (AK, HI, DC) ya da dosyalar okunamazsa kırmızı uyarı çıkar; program çökmez.
+- **Kopyala** önizlemenin aynısını panoya koyar (durum: `Intro prompt'u kopyalandı (Florida)`). **Şablonu aç** şablonu varsayılan düzenleyicide açar (olmazsa Not Defteri). Şablon ve eyalet dosyası sekme her açıldığında ve `FileSystemWatcher` ile değiştiğinde (300 ms gecikmeli) yeniden okunur.
+- Şablonu ya da eyalet verisini kalıcı değiştirmek için depodaki `PromptData\` düzenlenip derlenir; exe yanındaki kopya bir sonraki derlemede yenisiyle değişir (`PreserveNewest`).
 
 ## Çıktılar (`out\`)
 - `ranking_XX.csv` — tüm sütunlar + `reading` + `house_card`
@@ -148,6 +160,10 @@ Kullanıcı 9 ilçelik toplamayı (Charlotte, Collier, Highlands, Lee, Osceola, 
 
 ### 2026-09-24 — klasör ayrımı
 Kullanıcı isteğiyle uygulama (git deposu ve `bin\` içindeki bütün veriler dahil) `FredPull\` kökünden `FredPull\FredpullApp\` altına taşındı; `harita-studyosu` kökte ayrı klasör olarak kaldı. GitHub deposunun içeriği değişmedi (dosyalar yine depo kökünde); yalnızca yerel yol değişti. Eskiden stüdyo FredPull proje klasörünün içindeydi ve SDK projesi onun dosyalarını (`.venv` dahil) `None` öğesi olarak projeye katıyordu; artık katmıyor. `.git/info/exclude`'daki `/harita-studyosu/` satırı kaldırıldı. Stüdyo klasörü ayarı (`fredpull_settings.json`) geçerli kaldı; `FindStudio` yeni yerden de buluyor (exe'den 4 üst klasör). Visual Studio'da `FredPull\FredpullApp\FredPull.sln` açılır. Stüdyonun `.gitignore`'una FredPull projeleri eklendi (stüdyo deposu `52bdb51`).
+
+### 2026-09-25 — Video üretimi sekmesi
+`FredPull_TASK_VideoUretimi.md` (İndirilenler'deki `FREDPULL_TASK_video_uretimi_sekmesi.md` + `PromptData`) uygulandı. Ana gövde sekmeli oldu; Harita Stüdyosu satırı üst çubuktan yeni sekmeye taşındı (üst çubuk iki satıra indi), metin dosyası tablosu/seçimi ve "Çıktı klasörünü aç" eklendi, Flow intro prompt'u üreticisi eklendi (ayrıntı yukarıda).
+Doğrulama: ekran dışı açılan formla (geçici test projesi) görevdeki kabul testi — Florida: Komşular "Georgia, Alabama and the Gulf of Mexico", Pin "Orlando", önizlemenin 5. satırı "0:00 – 0:02", Orlando cümlesi ve "The label must read exactly FLORIDA." var, yer tutucu yok; pano = önizleme; Texas: "Oklahoma, New Mexico, Arkansas, Louisiana, Mexico and the Gulf of Mexico" / "Austin"; Alaska: boş kutular + uyarı; Florida pin "Tampa" → yeni form açılınca "Tampa", Varsayılana dön → "Orlando" ve kayıt silindi. "Stüdyoda render al" yeni sekmeden tek ilçelik (Lee) bir metin dosyasıyla çalıştırıldı: 3 sahne, doğrulama temiz, render 1 dk 44 sn, 4 dosya (3 sahne + `birlesik.mp4`), `LastStudioOut` kaydedildi ve "Çıktı klasörünü aç" etkinleşti (test projesi ve çıktısı sonra silindi).
 
 ## Açık konular
 - Claude ilan toplayıcıyı Redfin'e karşı kendisi çalıştırmaz; canlı çalıştırmaları kullanıcı yapar, Claude `out\log_listings.txt` ve `out\listings_XX.json`'u okuyup değerlendirir. md'deki kabul testi (Bant `200-450`) henüz çalıştırılmadı: Florida → Lee County, "Müstakil ev", Bant `200-450`, "Ev kartlarını topla" (403 sürerse "Açık Chrome'a bağlan (9222)" ile).

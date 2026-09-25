@@ -61,6 +61,36 @@ namespace FredPull
             _btnStudioBrowse = new Button();
             _btnStudioProject = new Button();
             _btnStudioRender = new Button();
+            _mainTabs = new TabControl();
+            _tabCounties = new TabPage();
+            _tabVideo = new TabPage();
+            _videoLayout = new TableLayoutPanel();
+            _grpAnim = new GroupBox();
+            _animLayout = new TableLayoutPanel();
+            _animStudioRow = new FlowLayoutPanel();
+            _animTextsRow = new FlowLayoutPanel();
+            _lblTexts = new Label();
+            _btnTextsPick = new Button();
+            _gridTexts = new DataGridView();
+            _tOrder = new DataGridViewTextBoxColumn();
+            _tCounty = new DataGridViewTextBoxColumn();
+            _tCities = new DataGridViewTextBoxColumn();
+            _tStat = new DataGridViewTextBoxColumn();
+            _animButtons = new FlowLayoutPanel();
+            _btnStudioOpenOut = new Button();
+            _grpIntro = new GroupBox();
+            _introLayout = new TableLayoutPanel();
+            _introFields = new TableLayoutPanel();
+            _lblNeighbors = new Label();
+            _txtNeighbors = new TextBox();
+            _lblPinCity = new Label();
+            _txtPinCity = new TextBox();
+            _introButtons = new FlowLayoutPanel();
+            _btnIntroCopy = new Button();
+            _btnIntroTemplate = new Button();
+            _btnIntroReset = new Button();
+            _lblIntroWarn = new Label();
+            _txtIntroPreview = new TextBox();
             _split = new SplitContainer();
             _grid = new DataGridView();
             _colName = new DataGridViewTextBoxColumn();
@@ -91,6 +121,20 @@ namespace FredPull
             _right.SuspendLayout();
             _metricRow.SuspendLayout();
             _bottom.SuspendLayout();
+            _mainTabs.SuspendLayout();
+            _tabCounties.SuspendLayout();
+            _tabVideo.SuspendLayout();
+            _videoLayout.SuspendLayout();
+            _grpAnim.SuspendLayout();
+            _animLayout.SuspendLayout();
+            _animStudioRow.SuspendLayout();
+            _animTextsRow.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)_gridTexts).BeginInit();
+            _animButtons.SuspendLayout();
+            _grpIntro.SuspendLayout();
+            _introLayout.SuspendLayout();
+            _introFields.SuspendLayout();
+            _introButtons.SuspendLayout();
             SuspendLayout();
             //
             // _top
@@ -115,19 +159,13 @@ namespace FredPull
             _top.Controls.Add(_chkCdp);
             _top.Controls.Add(_btnHouseCards);
             _top.Controls.Add(_btnHouseDetail);
-            _top.Controls.Add(_lblStudio);
-            _top.Controls.Add(_txtStudio);
-            _top.Controls.Add(_btnStudioBrowse);
-            _top.Controls.Add(_btnStudioProject);
-            _top.Controls.Add(_btnStudioRender);
             _top.Dock = DockStyle.Top;
             _top.Location = new Point(0, 0);
             _top.Name = "_top";
             _top.Padding = new Padding(8, 6, 8, 2);
-            _top.Size = new Size(1544, 104);
+            _top.Size = new Size(1544, 70);
             _top.TabIndex = 0;
             _top.SetFlowBreak(_btnOpenOut, true);
-            _top.SetFlowBreak(_btnHouseDetail, true);
             //
             // _lblState
             //
@@ -328,29 +366,29 @@ namespace FredPull
             // _lblStudio
             //
             _lblStudio.AutoSize = true;
-            _lblStudio.Location = new Point(18, 78);
-            _lblStudio.Margin = new Padding(10, 7, 4, 0);
+            _lblStudio.Location = new Point(3, 7);
+            _lblStudio.Margin = new Padding(3, 7, 4, 0);
             _lblStudio.Name = "_lblStudio";
-            _lblStudio.Size = new Size(98, 15);
-            _lblStudio.TabIndex = 19;
-            _lblStudio.Text = "Harita Stüdyosu:";
+            _lblStudio.Size = new Size(138, 15);
+            _lblStudio.TabIndex = 0;
+            _lblStudio.Text = "Harita Stüdyosu klasörü:";
             //
             // _txtStudio
             //
-            _txtStudio.Location = new Point(123, 74);
+            _txtStudio.Location = new Point(148, 3);
             _txtStudio.Name = "_txtStudio";
             _txtStudio.PlaceholderText = "klasör seçilmedi";
             _txtStudio.ReadOnly = true;
             _txtStudio.Size = new Size(380, 23);
-            _txtStudio.TabIndex = 20;
+            _txtStudio.TabIndex = 1;
             //
             // _btnStudioBrowse
             //
             _btnStudioBrowse.AutoSize = true;
-            _btnStudioBrowse.Location = new Point(509, 73);
+            _btnStudioBrowse.Location = new Point(534, 2);
             _btnStudioBrowse.Name = "_btnStudioBrowse";
             _btnStudioBrowse.Size = new Size(50, 25);
-            _btnStudioBrowse.TabIndex = 21;
+            _btnStudioBrowse.TabIndex = 2;
             _btnStudioBrowse.Text = "Seç…";
             _btnStudioBrowse.UseVisualStyleBackColor = true;
             _btnStudioBrowse.Click += BtnStudioBrowse_Click;
@@ -358,11 +396,10 @@ namespace FredPull
             // _btnStudioProject
             //
             _btnStudioProject.AutoSize = true;
-            _btnStudioProject.Location = new Point(575, 73);
-            _btnStudioProject.Margin = new Padding(12, 3, 3, 3);
+            _btnStudioProject.Location = new Point(3, 3);
             _btnStudioProject.Name = "_btnStudioProject";
             _btnStudioProject.Size = new Size(140, 25);
-            _btnStudioProject.TabIndex = 22;
+            _btnStudioProject.TabIndex = 0;
             _btnStudioProject.Text = "Stüdyo projesi oluştur";
             _btnStudioProject.UseVisualStyleBackColor = true;
             _btnStudioProject.Click += BtnStudioProject_Click;
@@ -370,10 +407,10 @@ namespace FredPull
             // _btnStudioRender
             //
             _btnStudioRender.AutoSize = true;
-            _btnStudioRender.Location = new Point(721, 73);
+            _btnStudioRender.Location = new Point(149, 3);
             _btnStudioRender.Name = "_btnStudioRender";
             _btnStudioRender.Size = new Size(130, 25);
-            _btnStudioRender.TabIndex = 23;
+            _btnStudioRender.TabIndex = 1;
             _btnStudioRender.Text = "Stüdyoda render al";
             _btnStudioRender.UseVisualStyleBackColor = true;
             _btnStudioRender.Click += BtnStudioRender_Click;
@@ -381,7 +418,7 @@ namespace FredPull
             // _split
             //
             _split.Dock = DockStyle.Fill;
-            _split.Location = new Point(0, 104);
+            _split.Location = new Point(0, 0);
             _split.Name = "_split";
             //
             // _split.Panel1
@@ -391,9 +428,9 @@ namespace FredPull
             // _split.Panel2
             //
             _split.Panel2.Controls.Add(_right);
-            _split.Size = new Size(1544, 733);
-            _split.SplitterDistance = 864;
-            _split.TabIndex = 1;
+            _split.Size = new Size(1536, 739);
+            _split.SplitterDistance = 860;
+            _split.TabIndex = 0;
             //
             // _grid
             //
@@ -612,12 +649,367 @@ namespace FredPull
             _status.TabIndex = 1;
             _status.TextAlign = ContentAlignment.MiddleLeft;
             //
+            // _mainTabs
+            //
+            _mainTabs.Controls.Add(_tabCounties);
+            _mainTabs.Controls.Add(_tabVideo);
+            _mainTabs.Dock = DockStyle.Fill;
+            _mainTabs.Location = new Point(0, 70);
+            _mainTabs.Name = "_mainTabs";
+            _mainTabs.SelectedIndex = 0;
+            _mainTabs.Size = new Size(1544, 767);
+            _mainTabs.TabIndex = 1;
+            _mainTabs.SelectedIndexChanged += MainTabs_SelectedIndexChanged;
+            //
+            // _tabCounties
+            //
+            _tabCounties.Controls.Add(_split);
+            _tabCounties.Location = new Point(4, 24);
+            _tabCounties.Name = "_tabCounties";
+            _tabCounties.Size = new Size(1536, 739);
+            _tabCounties.TabIndex = 0;
+            _tabCounties.Text = "İlçeler";
+            _tabCounties.UseVisualStyleBackColor = true;
+            //
+            // _tabVideo
+            //
+            _tabVideo.Controls.Add(_videoLayout);
+            _tabVideo.Location = new Point(4, 24);
+            _tabVideo.Name = "_tabVideo";
+            _tabVideo.Padding = new Padding(6);
+            _tabVideo.Size = new Size(1536, 739);
+            _tabVideo.TabIndex = 1;
+            _tabVideo.Text = "Video üretimi";
+            _tabVideo.UseVisualStyleBackColor = true;
+            //
+            // _videoLayout
+            //
+            _videoLayout.ColumnCount = 2;
+            _videoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45F));
+            _videoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55F));
+            _videoLayout.Controls.Add(_grpAnim, 0, 0);
+            _videoLayout.Controls.Add(_grpIntro, 1, 0);
+            _videoLayout.Dock = DockStyle.Fill;
+            _videoLayout.Location = new Point(6, 6);
+            _videoLayout.Name = "_videoLayout";
+            _videoLayout.RowCount = 1;
+            _videoLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            _videoLayout.Size = new Size(1524, 727);
+            _videoLayout.TabIndex = 0;
+            //
+            // _grpAnim
+            //
+            _grpAnim.Controls.Add(_animLayout);
+            _grpAnim.Dock = DockStyle.Fill;
+            _grpAnim.Location = new Point(3, 3);
+            _grpAnim.Name = "_grpAnim";
+            _grpAnim.Padding = new Padding(8);
+            _grpAnim.Size = new Size(679, 721);
+            _grpAnim.TabIndex = 0;
+            _grpAnim.TabStop = false;
+            _grpAnim.Text = "Animasyon — Harita Stüdyosu";
+            //
+            // _animLayout
+            //
+            _animLayout.ColumnCount = 1;
+            _animLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            _animLayout.Controls.Add(_animStudioRow, 0, 0);
+            _animLayout.Controls.Add(_animTextsRow, 0, 1);
+            _animLayout.Controls.Add(_gridTexts, 0, 2);
+            _animLayout.Controls.Add(_animButtons, 0, 3);
+            _animLayout.Dock = DockStyle.Fill;
+            _animLayout.Location = new Point(8, 24);
+            _animLayout.Name = "_animLayout";
+            _animLayout.RowCount = 4;
+            _animLayout.RowStyles.Add(new RowStyle());
+            _animLayout.RowStyles.Add(new RowStyle());
+            _animLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            _animLayout.RowStyles.Add(new RowStyle());
+            _animLayout.Size = new Size(663, 689);
+            _animLayout.TabIndex = 0;
+            //
+            // _animStudioRow
+            //
+            _animStudioRow.AutoSize = true;
+            _animStudioRow.Controls.Add(_lblStudio);
+            _animStudioRow.Controls.Add(_txtStudio);
+            _animStudioRow.Controls.Add(_btnStudioBrowse);
+            _animStudioRow.Dock = DockStyle.Fill;
+            _animStudioRow.Location = new Point(3, 3);
+            _animStudioRow.Name = "_animStudioRow";
+            _animStudioRow.Size = new Size(657, 31);
+            _animStudioRow.TabIndex = 0;
+            _animStudioRow.WrapContents = false;
+            //
+            // _animTextsRow
+            //
+            _animTextsRow.AutoSize = true;
+            _animTextsRow.Controls.Add(_lblTexts);
+            _animTextsRow.Controls.Add(_btnTextsPick);
+            _animTextsRow.Dock = DockStyle.Fill;
+            _animTextsRow.Location = new Point(3, 40);
+            _animTextsRow.Name = "_animTextsRow";
+            _animTextsRow.Size = new Size(657, 31);
+            _animTextsRow.TabIndex = 1;
+            _animTextsRow.WrapContents = false;
+            //
+            // _lblTexts
+            //
+            _lblTexts.AutoSize = true;
+            _lblTexts.Location = new Point(3, 8);
+            _lblTexts.Margin = new Padding(3, 8, 10, 0);
+            _lblTexts.Name = "_lblTexts";
+            _lblTexts.Size = new Size(104, 15);
+            _lblTexts.TabIndex = 0;
+            _lblTexts.Text = "Metin dosyası yok";
+            //
+            // _btnTextsPick
+            //
+            _btnTextsPick.AutoSize = true;
+            _btnTextsPick.Location = new Point(120, 3);
+            _btnTextsPick.Name = "_btnTextsPick";
+            _btnTextsPick.Size = new Size(125, 25);
+            _btnTextsPick.TabIndex = 1;
+            _btnTextsPick.Text = "Metin dosyası seç…";
+            _btnTextsPick.UseVisualStyleBackColor = true;
+            _btnTextsPick.Click += BtnTextsPick_Click;
+            //
+            // _gridTexts
+            //
+            _gridTexts.AllowUserToAddRows = false;
+            _gridTexts.AllowUserToDeleteRows = false;
+            _gridTexts.AllowUserToResizeRows = false;
+            _gridTexts.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            _gridTexts.BackgroundColor = SystemColors.Window;
+            _gridTexts.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            _gridTexts.Columns.AddRange(new DataGridViewColumn[] { _tOrder, _tCounty, _tCities, _tStat });
+            _gridTexts.Dock = DockStyle.Fill;
+            _gridTexts.Location = new Point(3, 77);
+            _gridTexts.MultiSelect = false;
+            _gridTexts.Name = "_gridTexts";
+            _gridTexts.ReadOnly = true;
+            _gridTexts.RowHeadersVisible = false;
+            _gridTexts.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            _gridTexts.Size = new Size(657, 572);
+            _gridTexts.TabIndex = 2;
+            //
+            // _tOrder
+            //
+            _tOrder.FillWeight = 12F;
+            _tOrder.HeaderText = "Sıra";
+            _tOrder.Name = "_tOrder";
+            _tOrder.ReadOnly = true;
+            //
+            // _tCounty
+            //
+            _tCounty.FillWeight = 28F;
+            _tCounty.HeaderText = "County";
+            _tCounty.Name = "_tCounty";
+            _tCounty.ReadOnly = true;
+            //
+            // _tCities
+            //
+            _tCities.FillWeight = 50F;
+            _tCities.HeaderText = "Şehirler";
+            _tCities.Name = "_tCities";
+            _tCities.ReadOnly = true;
+            //
+            // _tStat
+            //
+            _tStat.FillWeight = 70F;
+            _tStat.HeaderText = "İstatistik";
+            _tStat.Name = "_tStat";
+            _tStat.ReadOnly = true;
+            //
+            // _animButtons
+            //
+            _animButtons.AutoSize = true;
+            _animButtons.Controls.Add(_btnStudioProject);
+            _animButtons.Controls.Add(_btnStudioRender);
+            _animButtons.Controls.Add(_btnStudioOpenOut);
+            _animButtons.Dock = DockStyle.Fill;
+            _animButtons.Location = new Point(3, 655);
+            _animButtons.Name = "_animButtons";
+            _animButtons.Size = new Size(657, 31);
+            _animButtons.TabIndex = 3;
+            //
+            // _btnStudioOpenOut
+            //
+            _btnStudioOpenOut.AutoSize = true;
+            _btnStudioOpenOut.Enabled = false;
+            _btnStudioOpenOut.Location = new Point(285, 3);
+            _btnStudioOpenOut.Name = "_btnStudioOpenOut";
+            _btnStudioOpenOut.Size = new Size(120, 25);
+            _btnStudioOpenOut.TabIndex = 2;
+            _btnStudioOpenOut.Text = "Çıktı klasörünü aç";
+            _btnStudioOpenOut.UseVisualStyleBackColor = true;
+            _btnStudioOpenOut.Click += BtnStudioOpenOut_Click;
+            //
+            // _grpIntro
+            //
+            _grpIntro.Controls.Add(_introLayout);
+            _grpIntro.Dock = DockStyle.Fill;
+            _grpIntro.Location = new Point(688, 3);
+            _grpIntro.Name = "_grpIntro";
+            _grpIntro.Padding = new Padding(8);
+            _grpIntro.Size = new Size(833, 721);
+            _grpIntro.TabIndex = 1;
+            _grpIntro.TabStop = false;
+            _grpIntro.Text = "Intro prompt'u — Flow";
+            //
+            // _introLayout
+            //
+            _introLayout.ColumnCount = 1;
+            _introLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            _introLayout.Controls.Add(_introFields, 0, 0);
+            _introLayout.Controls.Add(_introButtons, 0, 1);
+            _introLayout.Controls.Add(_lblIntroWarn, 0, 2);
+            _introLayout.Controls.Add(_txtIntroPreview, 0, 3);
+            _introLayout.Dock = DockStyle.Fill;
+            _introLayout.Location = new Point(8, 24);
+            _introLayout.Name = "_introLayout";
+            _introLayout.RowCount = 4;
+            _introLayout.RowStyles.Add(new RowStyle());
+            _introLayout.RowStyles.Add(new RowStyle());
+            _introLayout.RowStyles.Add(new RowStyle());
+            _introLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            _introLayout.Size = new Size(817, 689);
+            _introLayout.TabIndex = 0;
+            //
+            // _introFields
+            //
+            _introFields.AutoSize = true;
+            _introFields.ColumnCount = 2;
+            _introFields.ColumnStyles.Add(new ColumnStyle());
+            _introFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            _introFields.Controls.Add(_lblNeighbors, 0, 0);
+            _introFields.Controls.Add(_txtNeighbors, 1, 0);
+            _introFields.Controls.Add(_lblPinCity, 0, 1);
+            _introFields.Controls.Add(_txtPinCity, 1, 1);
+            _introFields.Dock = DockStyle.Fill;
+            _introFields.Location = new Point(3, 3);
+            _introFields.Name = "_introFields";
+            _introFields.RowCount = 2;
+            _introFields.RowStyles.Add(new RowStyle());
+            _introFields.RowStyles.Add(new RowStyle());
+            _introFields.Size = new Size(811, 58);
+            _introFields.TabIndex = 0;
+            //
+            // _lblNeighbors
+            //
+            _lblNeighbors.AutoSize = true;
+            _lblNeighbors.Location = new Point(3, 7);
+            _lblNeighbors.Margin = new Padding(3, 7, 6, 0);
+            _lblNeighbors.Name = "_lblNeighbors";
+            _lblNeighbors.Size = new Size(59, 15);
+            _lblNeighbors.TabIndex = 0;
+            _lblNeighbors.Text = "Komşular:";
+            //
+            // _txtNeighbors
+            //
+            _txtNeighbors.Dock = DockStyle.Fill;
+            _txtNeighbors.Location = new Point(71, 3);
+            _txtNeighbors.Name = "_txtNeighbors";
+            _txtNeighbors.Size = new Size(737, 23);
+            _txtNeighbors.TabIndex = 1;
+            _txtNeighbors.TextChanged += IntroField_TextChanged;
+            //
+            // _lblPinCity
+            //
+            _lblPinCity.AutoSize = true;
+            _lblPinCity.Location = new Point(3, 36);
+            _lblPinCity.Margin = new Padding(3, 7, 6, 0);
+            _lblPinCity.Name = "_lblPinCity";
+            _lblPinCity.Size = new Size(58, 15);
+            _lblPinCity.TabIndex = 2;
+            _lblPinCity.Text = "Pin şehri:";
+            //
+            // _txtPinCity
+            //
+            _txtPinCity.Dock = DockStyle.Fill;
+            _txtPinCity.Location = new Point(71, 32);
+            _txtPinCity.Name = "_txtPinCity";
+            _txtPinCity.Size = new Size(737, 23);
+            _txtPinCity.TabIndex = 3;
+            _txtPinCity.TextChanged += IntroField_TextChanged;
+            //
+            // _introButtons
+            //
+            _introButtons.AutoSize = true;
+            _introButtons.Controls.Add(_btnIntroCopy);
+            _introButtons.Controls.Add(_btnIntroTemplate);
+            _introButtons.Controls.Add(_btnIntroReset);
+            _introButtons.Dock = DockStyle.Fill;
+            _introButtons.Location = new Point(3, 67);
+            _introButtons.Name = "_introButtons";
+            _introButtons.Size = new Size(811, 31);
+            _introButtons.TabIndex = 1;
+            //
+            // _btnIntroCopy
+            //
+            _btnIntroCopy.AutoSize = true;
+            _btnIntroCopy.Location = new Point(3, 3);
+            _btnIntroCopy.Name = "_btnIntroCopy";
+            _btnIntroCopy.Size = new Size(75, 25);
+            _btnIntroCopy.TabIndex = 0;
+            _btnIntroCopy.Text = "Kopyala";
+            _btnIntroCopy.UseVisualStyleBackColor = true;
+            _btnIntroCopy.Click += BtnIntroCopy_Click;
+            //
+            // _btnIntroTemplate
+            //
+            _btnIntroTemplate.AutoSize = true;
+            _btnIntroTemplate.Location = new Point(84, 3);
+            _btnIntroTemplate.Name = "_btnIntroTemplate";
+            _btnIntroTemplate.Size = new Size(85, 25);
+            _btnIntroTemplate.TabIndex = 1;
+            _btnIntroTemplate.Text = "Şablonu aç";
+            _btnIntroTemplate.UseVisualStyleBackColor = true;
+            _btnIntroTemplate.Click += BtnIntroTemplate_Click;
+            //
+            // _btnIntroReset
+            //
+            _btnIntroReset.AutoSize = true;
+            _btnIntroReset.Enabled = false;
+            _btnIntroReset.Location = new Point(175, 3);
+            _btnIntroReset.Margin = new Padding(20, 3, 3, 3);
+            _btnIntroReset.Name = "_btnIntroReset";
+            _btnIntroReset.Size = new Size(110, 25);
+            _btnIntroReset.TabIndex = 2;
+            _btnIntroReset.Text = "Varsayılana dön";
+            _btnIntroReset.UseVisualStyleBackColor = true;
+            _btnIntroReset.Click += BtnIntroReset_Click;
+            //
+            // _lblIntroWarn
+            //
+            _lblIntroWarn.AutoSize = true;
+            _lblIntroWarn.ForeColor = Color.FromArgb(190, 30, 30);
+            _lblIntroWarn.Location = new Point(3, 104);
+            _lblIntroWarn.Margin = new Padding(3, 3, 3, 6);
+            _lblIntroWarn.Name = "_lblIntroWarn";
+            _lblIntroWarn.Size = new Size(0, 15);
+            _lblIntroWarn.TabIndex = 2;
+            _lblIntroWarn.Visible = false;
+            //
+            // _txtIntroPreview
+            //
+            _txtIntroPreview.BackColor = SystemColors.Window;
+            _txtIntroPreview.Dock = DockStyle.Fill;
+            _txtIntroPreview.Font = new Font("Segoe UI", 10F);
+            _txtIntroPreview.Location = new Point(3, 128);
+            _txtIntroPreview.Multiline = true;
+            _txtIntroPreview.Name = "_txtIntroPreview";
+            _txtIntroPreview.ReadOnly = true;
+            _txtIntroPreview.ScrollBars = ScrollBars.Vertical;
+            _txtIntroPreview.Size = new Size(811, 558);
+            _txtIntroPreview.TabIndex = 3;
+            //
             // MainForm
             //
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1544, 861);
-            Controls.Add(_split);
+            Controls.Add(_mainTabs);
             Controls.Add(_top);
             Controls.Add(_bottom);
             Font = new Font("Segoe UI", 9F);
@@ -636,6 +1028,27 @@ namespace FredPull
             _metricRow.ResumeLayout(false);
             _metricRow.PerformLayout();
             _bottom.ResumeLayout(false);
+            _animStudioRow.ResumeLayout(false);
+            _animStudioRow.PerformLayout();
+            _animTextsRow.ResumeLayout(false);
+            _animTextsRow.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)_gridTexts).EndInit();
+            _animButtons.ResumeLayout(false);
+            _animButtons.PerformLayout();
+            _animLayout.ResumeLayout(false);
+            _animLayout.PerformLayout();
+            _grpAnim.ResumeLayout(false);
+            _introFields.ResumeLayout(false);
+            _introFields.PerformLayout();
+            _introButtons.ResumeLayout(false);
+            _introButtons.PerformLayout();
+            _introLayout.ResumeLayout(false);
+            _introLayout.PerformLayout();
+            _grpIntro.ResumeLayout(false);
+            _videoLayout.ResumeLayout(false);
+            _tabVideo.ResumeLayout(false);
+            _tabCounties.ResumeLayout(false);
+            _mainTabs.ResumeLayout(false);
             ResumeLayout(false);
             PerformLayout();
         }
@@ -663,13 +1076,49 @@ namespace FredPull
         private CheckBox _chkCdp;
         private Button _btnHouseCards;
         private Button _btnHouseDetail;
+
+        // Sekmeler
+        private TabControl _mainTabs;
+        private TabPage _tabCounties;
+        private TabPage _tabVideo;
+
+        // Video üretimi: animasyon (Harita Stüdyosu)
+        private TableLayoutPanel _videoLayout;
+        private GroupBox _grpAnim;
+        private TableLayoutPanel _animLayout;
+        private FlowLayoutPanel _animStudioRow;
         private Label _lblStudio;
         private TextBox _txtStudio;
         private Button _btnStudioBrowse;
+        private FlowLayoutPanel _animTextsRow;
+        private Label _lblTexts;
+        private Button _btnTextsPick;
+        private DataGridView _gridTexts;
+        private DataGridViewTextBoxColumn _tOrder;
+        private DataGridViewTextBoxColumn _tCounty;
+        private DataGridViewTextBoxColumn _tCities;
+        private DataGridViewTextBoxColumn _tStat;
+        private FlowLayoutPanel _animButtons;
         private Button _btnStudioProject;
         private Button _btnStudioRender;
+        private Button _btnStudioOpenOut;
 
-        // Sol: tablo
+        // Video üretimi: intro prompt'u (Flow)
+        private GroupBox _grpIntro;
+        private TableLayoutPanel _introLayout;
+        private TableLayoutPanel _introFields;
+        private Label _lblNeighbors;
+        private TextBox _txtNeighbors;
+        private Label _lblPinCity;
+        private TextBox _txtPinCity;
+        private FlowLayoutPanel _introButtons;
+        private Button _btnIntroCopy;
+        private Button _btnIntroTemplate;
+        private Button _btnIntroReset;
+        private Label _lblIntroWarn;
+        private TextBox _txtIntroPreview;
+
+        // İlçeler sekmesi: tablo
         private SplitContainer _split;
         private DataGridView _grid;
         private DataGridViewTextBoxColumn _colName;

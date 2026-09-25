@@ -44,6 +44,7 @@ public partial class MainForm : Form
         if (File.Exists(_keyFile)) _txtKey.Text = File.ReadAllText(_keyFile).Trim();
         UpdateRedfinLabel();
         LoadSettings();
+        SetupVideoTab();
 
         _info.Text = Analyzer.Glossary;
     }
@@ -53,13 +54,19 @@ public partial class MainForm : Form
         _split.SplitterDistance = (int)(_split.Width * 0.56);
         await LoadCatalogAsync();
         LoadCache(showMessage: false);
+        RefreshVideoTab(reloadFiles: true);
     }
 
     void BtnCancel_Click(object? sender, EventArgs e) => _cts?.Cancel();
     void BtnLoad_Click(object? sender, EventArgs e) => LoadCache(showMessage: true);
     void CbMetric_SelectedIndexChanged(object? sender, EventArgs e) => UpdatePlot();
     void Grid_CurrentCellChanged(object? sender, EventArgs e) => UpdatePlot();
-    void CbState_SelectedIndexChanged(object? sender, EventArgs e) { UpdateCountyCount(); LoadCache(showMessage: false); }
+    void CbState_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        UpdateCountyCount();
+        LoadCache(showMessage: false);
+        RefreshVideoTab(reloadFiles: false);
+    }
 
     void BtnOpenOut_Click(object? sender, EventArgs e)
     {
@@ -311,7 +318,7 @@ public partial class MainForm : Form
         Busy = busy;
         _btnFetch.Enabled = !busy; _btnLoad.Enabled = !busy; _cbState.Enabled = !busy; _btnRedfin.Enabled = !busy;
         _btnAttachRedfin.Enabled = !busy; _btnHouseCards.Enabled = !busy; _cbHouseMode.Enabled = !busy; _txtBand.Enabled = !busy; _chkCdp.Enabled = !busy;
-        _btnStudioBrowse.Enabled = !busy; _btnStudioProject.Enabled = !busy; _btnStudioRender.Enabled = !busy;
+        _btnStudioBrowse.Enabled = !busy; _btnStudioProject.Enabled = !busy; _btnStudioRender.Enabled = !busy; _btnTextsPick.Enabled = !busy;
         _btnCancel.Enabled = busy;
         if (!busy) _progress.Value = 0;
     }
@@ -430,6 +437,7 @@ public partial class MainForm : Form
     sealed class AppSettings
     {
         public string? StudioDir { get; set; }
+        public string? LastStudioOut { get; set; }      // son render'ın çıktı klasörü ("Çıktı klasörünü aç")
     }
 
     AppSettings _settings = new();
@@ -603,7 +611,13 @@ public partial class MainForm : Form
             var outDir = outputs.Select(Path.GetDirectoryName).FirstOrDefault(d => !string.IsNullOrEmpty(d));
             LogStudio($"render bitti: {sw.Elapsed:h\\:mm\\:ss}, {outputs.Count} dosya — {outDir}");
             _status.Text = $"Render bitti ({sw.Elapsed:h\\:mm\\:ss}): {outputs.Count} dosya — {outDir}";
-            if (outDir != null) Process.Start("explorer.exe", outDir);
+            if (outDir != null)
+            {
+                _settings.LastStudioOut = outDir;
+                SaveSettings();
+                UpdateStudioOpenOut();
+                Process.Start("explorer.exe", outDir);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -641,6 +655,240 @@ public partial class MainForm : Form
                 _status.Text = "Stüdyo hatası: " + ev.GetProperty("message").GetString();
                 break;
         }
+    }
+
+    // ---------- Video üretimi sekmesi ----------
+
+    Dictionary<string, IntroPrompt.StateIntro>? _introStates;
+    Dictionary<string, IntroPrompt.Override> _introOverrides = new();
+    string? _introTemplate;
+    string? _introFileError;
+    bool _fillingIntro;                 // kutular programdan doldurulurken değişiklik kaydedilmesin
+    FileSystemWatcher? _promptWatcher;
+    readonly System.Windows.Forms.Timer _promptReload = new() { Interval = 300 };
+
+    string OverridesPath => Path.Combine(_baseDir, IntroPrompt.OverridesFile);
+
+    /// Kullanıcı düzeltmelerini okur; şablon ve eyalet verisi değişince (dışarıdan düzenleme) önizlemeyi yeniler.
+    void SetupVideoTab()
+    {
+        _introOverrides = IntroPrompt.LoadOverrides(OverridesPath);
+        // Düzenleyiciler kaydederken birkaç olay üretir ve dosya bir an kilitli olabilir: 300 ms sonra bir kez oku
+        _promptReload.Tick += (_, _) => { _promptReload.Stop(); RefreshIntro(reloadFiles: true); };
+        var dir = IntroPrompt.Dir(_baseDir);
+        if (!Directory.Exists(dir)) return;
+        _promptWatcher = new FileSystemWatcher(dir)
+        {
+            SynchronizingObject = this,
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
+            EnableRaisingEvents = true,
+        };
+        _promptWatcher.Changed += PromptFileChanged;
+        _promptWatcher.Created += PromptFileChanged;
+        _promptWatcher.Renamed += PromptFileChanged;
+    }
+
+    void PromptFileChanged(object? sender, FileSystemEventArgs e)
+    {
+        if (e.Name is IntroPrompt.TemplateFile or IntroPrompt.StatesFile) { _promptReload.Stop(); _promptReload.Start(); }
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        _promptWatcher?.Dispose();
+        _promptReload.Dispose();
+        base.OnFormClosed(e);
+    }
+
+    void MainTabs_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        if (_mainTabs.SelectedTab == _tabVideo) RefreshVideoTab(reloadFiles: true);
+    }
+
+    /// Eyalet değişince, açılışta ve sekme her etkinleştiğinde: metin dosyası, intro kutuları ve önizleme.
+    void RefreshVideoTab(bool reloadFiles)
+    {
+        RefreshTexts();
+        RefreshIntro(reloadFiles);
+        UpdateStudioOpenOut();
+    }
+
+    string TextsPath => Path.Combine(_outDir, $"metinler_{SelectedAbbr}.csv");
+
+    void RefreshTexts()
+    {
+        _gridTexts.Rows.Clear();
+        _lblTexts.ForeColor = SystemColors.ControlText;
+        if (!File.Exists(TextsPath))
+        {
+            _lblTexts.Text = "Metin dosyası yok — seçili satırlar ekran sırasıyla kullanılacak";
+            _lblTexts.ForeColor = SystemColors.GrayText;
+            return;
+        }
+        try
+        {
+            var warnings = new List<string>();
+            var rows = StudioExport.ReadTexts(TextsPath, warnings);
+            foreach (var t in rows)
+            {
+                var county = t.County.Length > 0 ? t.County
+                    : CurrentCounties().FirstOrDefault(c => c.Fips == t.Fips)?.Name ?? t.Fips;
+                _gridTexts.Rows.Add(t.Order, county, t.FocusSub, t.FocusStat);
+            }
+            _gridTexts.ClearSelection();       // salt okunur liste; ilk satır "seçili" görünmesin
+            _lblTexts.Text = $"Metin dosyası: {rows.Count} county" + (warnings.Count > 0 ? $" ({warnings.Count} uyarı: {warnings[0]})" : "");
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _lblTexts.Text = "Metin dosyası okunamadı: " + ex.Message;
+            _lblTexts.ForeColor = Color.FromArgb(190, 30, 30);
+        }
+    }
+
+    /// Seçilen CSV'yi out\metinler_{EYALET}.csv adıyla kopyalar (önce okunabildiğini, varsa üzerine yazmayı sorar).
+    void BtnTextsPick_Click(object? sender, EventArgs e)
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = "Metin dosyası seç (order, fips, county, focus_sub, focus_stat)",
+            Filter = "CSV dosyası (*.csv)|*.csv|Tüm dosyalar (*.*)|*.*",
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        var target = TextsPath;
+        try
+        {
+            var rows = StudioExport.ReadTexts(dlg.FileName, new List<string>());
+            if (rows.Count == 0)
+            {
+                MessageBox.Show("Dosyada county satırı yok.", "Metin dosyası");
+                return;
+            }
+            if (!string.Equals(Path.GetFullPath(dlg.FileName), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+            {
+                if (File.Exists(target) && MessageBox.Show($"{Path.GetFileName(target)} zaten var. Üzerine yazılsın mı?", "Metin dosyası",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                Directory.CreateDirectory(_outDir);
+                File.Copy(dlg.FileName, target, overwrite: true);
+            }
+            RefreshTexts();
+            _status.Text = $"Metin dosyası: {rows.Count} county — {target}";
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(ex.Message, "Metin dosyası", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    void UpdateStudioOpenOut() =>
+        _btnStudioOpenOut.Enabled = _settings.LastStudioOut is { } d && Directory.Exists(d);
+
+    void BtnStudioOpenOut_Click(object? sender, EventArgs e)
+    {
+        if (_settings.LastStudioOut is { } d && Directory.Exists(d)) Process.Start("explorer.exe", d);
+        else UpdateStudioOpenOut();
+    }
+
+    void LoadIntroFiles()
+    {
+        var dir = IntroPrompt.Dir(_baseDir);
+        var errors = new List<string>();
+        try { _introStates = IntroPrompt.LoadStates(Path.Combine(dir, IntroPrompt.StatesFile)); }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            _introStates = null;
+            errors.Add($"{IntroPrompt.StatesFile} okunamadı: {ex.Message}");
+        }
+        try { _introTemplate = IntroPrompt.LoadTemplate(Path.Combine(dir, IntroPrompt.TemplateFile)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _introTemplate = null;
+            errors.Add($"{IntroPrompt.TemplateFile} okunamadı: {ex.Message}");
+        }
+        _introFileError = errors.Count == 0 ? null : string.Join("\n", errors) + $"\nBeklenen klasör: {dir}";
+    }
+
+    /// Kutular: önce kullanıcının bu eyalet için kaydettiği değer, yoksa states_intro.json.
+    void RefreshIntro(bool reloadFiles)
+    {
+        if (reloadFiles || (_introStates == null && _introTemplate == null && _introFileError == null)) LoadIntroFiles();
+        var abbr = SelectedAbbr;
+        var def = _introStates?.GetValueOrDefault(abbr);
+        _introOverrides.TryGetValue(abbr, out var ov);
+        _fillingIntro = true;
+        _txtNeighbors.Text = ov?.Neighbors ?? def?.Neighbors ?? "";
+        _txtPinCity.Text = ov?.PinCity ?? def?.PinCity ?? "";
+        _fillingIntro = false;
+        _btnIntroReset.Enabled = ov != null;
+        UpdateIntroPreview();
+    }
+
+    string IntroStateName(string abbr) => _introStates?.GetValueOrDefault(abbr)?.Name ?? StateName(abbr);
+
+    void IntroField_TextChanged(object? sender, EventArgs e)
+    {
+        if (_fillingIntro) return;
+        var abbr = SelectedAbbr;
+        var def = _introStates?.GetValueOrDefault(abbr);
+        if (def != null && _txtNeighbors.Text == def.Neighbors && _txtPinCity.Text == def.PinCity) _introOverrides.Remove(abbr);
+        else _introOverrides[abbr] = new IntroPrompt.Override { Neighbors = _txtNeighbors.Text, PinCity = _txtPinCity.Text };
+        try { IntroPrompt.SaveOverrides(OverridesPath, _introOverrides); }
+        catch (IOException ex) { _status.Text = $"{IntroPrompt.OverridesFile} yazılamadı: {ex.Message}"; }
+        _btnIntroReset.Enabled = _introOverrides.ContainsKey(abbr);
+        UpdateIntroPreview();
+    }
+
+    void BtnIntroReset_Click(object? sender, EventArgs e)
+    {
+        if (_introOverrides.Remove(SelectedAbbr))
+        {
+            try { IntroPrompt.SaveOverrides(OverridesPath, _introOverrides); }
+            catch (IOException ex) { _status.Text = $"{IntroPrompt.OverridesFile} yazılamadı: {ex.Message}"; }
+        }
+        RefreshIntro(reloadFiles: false);
+        _status.Text = $"Intro değerleri varsayılana döndü ({IntroStateName(SelectedAbbr)})";
+    }
+
+    void UpdateIntroPreview()
+    {
+        var abbr = SelectedAbbr;
+        var warnings = new List<string>();
+        if (_introFileError != null) warnings.Add(_introFileError);
+        else if (_introStates != null && !_introStates.ContainsKey(abbr))
+            warnings.Add($"{StateName(abbr)} ({abbr}) {IntroPrompt.StatesFile} içinde yok; Komşular ve Pin şehri kutularını elle doldur.");
+
+        if (_introTemplate == null) _txtIntroPreview.Text = "";
+        else
+        {
+            var neighbors = _txtNeighbors.Text.Trim();
+            var pin = _txtPinCity.Text.Trim();
+            var text = IntroPrompt.Fill(_introTemplate, IntroStateName(abbr), neighbors, pin);
+            _txtIntroPreview.Text = text;
+            if (neighbors.Length == 0) warnings.Add("Komşular boş.");
+            if (pin.Length == 0) warnings.Add("Pin şehri boş.");
+            if (IntroPrompt.Leftovers(text) is { Count: > 0 } left) warnings.Add("Doldurulmamış yer tutucu: " + string.Join(", ", left));
+        }
+        _lblIntroWarn.Text = string.Join("\n", warnings);
+        _lblIntroWarn.Visible = warnings.Count > 0;
+        _btnIntroCopy.Enabled = _txtIntroPreview.TextLength > 0;
+    }
+
+    void BtnIntroCopy_Click(object? sender, EventArgs e)
+    {
+        if (_txtIntroPreview.TextLength == 0) return;
+        Clipboard.SetText(_txtIntroPreview.Text);
+        _status.Text = $"Intro prompt'u kopyalandı ({IntroStateName(SelectedAbbr)})";
+    }
+
+    void BtnIntroTemplate_Click(object? sender, EventArgs e)
+    {
+        var path = Path.Combine(IntroPrompt.Dir(_baseDir), IntroPrompt.TemplateFile);
+        if (!File.Exists(path))
+        {
+            MessageBox.Show($"Şablon bulunamadı:\n{path}", "Intro prompt'u", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
+        catch (System.ComponentModel.Win32Exception) { Process.Start("notepad.exe", $"\"{path}\""); }   // .txt ilişkisi yoksa
     }
 
     // ---------- ev detay formu ----------

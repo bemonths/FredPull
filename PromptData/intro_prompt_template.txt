@@ -1,0 +1,35 @@
+Create a 10-second premium 16:9 map intro animation for a professional real estate YouTube channel.
+
+Use the reference image only as the visual style anchor. Preserve the same premium cinematic cartographic look throughout: bold orange-red neon borders, luminous road networks, rich dark green and earthy brown land textures, dramatic cloud framing, deep navy-blue water, bright turquoise coastal shallows and a polished high-end broadcast aesthetic.
+
+0:00 – 0:02
+Begin on a dramatic aerial map view of [STATE] and the surrounding region with a subtle cinematic push-in. [STATE] already stands out with a bold, vivid orange-red glowing outline. [NEIGHBORS] stay visible only as dim context.
+
+0:02 – 0:04
+A thin luminous tracing light runs along the entire exact [STATE] border. [STATE] stays geographically accurate, clean and instantly recognizable.
+
+0:04 – 0:06
+Only the exact [STATE] silhouette cleanly lifts upward as one solid object with subtle visible 3D thickness. Do not detach a rectangular slab, surrounding land or neighboring states. The rest of the land smoothly darkens and dissolves without leaving any bright hole behind.
+
+0:06 – 0:08
+Everything except [STATE] fades completely into a deep navy background until [STATE] is the only visible object in the frame. [STATE] keeps its road networks, land detail and glowing orange-red outline. The camera follows it gently and settles.
+
+0:08 – 0:10
+The camera comes to a complete rest. A glossy, dimensional crimson location marker with an enamel finish and a soft highlight drops onto land at the location of [PIN CITY] and casts a small shadow. A thin elegant white locator line extends outward to the right, with a faint golden light streak gliding along it. The label [STATE IN CAPITALS] appears letter by letter in a wide-tracked classic Roman serif in warm white. The label must read exactly [STATE IN CAPITALS].
+
+Final frame
+A clean, static hero composition of [STATE] alone, centered on the dark navy background, with the marker, the locator line and the [STATE IN CAPITALS] label.
+
+Important constraints
+- Preserve the visual style and palette of the reference image.
+- Keep the orange-red outline around [STATE] strong, vivid and clearly visible.
+- Preserve realistic [STATE] geography.
+- After [STATE] separates, no other land may remain: all neighboring states, countries and islands must fade out completely.
+- No map labels, no state names and no place names anywhere, except the [STATE IN CAPITALS] label.
+- No other text anywhere in the frame.
+- No invented terrain.
+- No buildings or 3D city blocks growing from the map.
+- No cartoon graphics, no oversized icons, no interface elements, no logos.
+- No bright white cutout where [STATE] was removed.
+- No music and no voice.
+- Motion is smooth, restrained, luxurious, realistic and cinematic.

@@ -1,0 +1,290 @@
+[
+ {
+  "abbr": "AL",
+  "name": "Alabama",
+  "neighbors": "Mississippi, Tennessee, Georgia, Florida and the Gulf of Mexico",
+  "pin_city": "Birmingham"
+ },
+ {
+  "abbr": "AZ",
+  "name": "Arizona",
+  "neighbors": "California, Nevada, Utah, New Mexico and Mexico",
+  "pin_city": "Phoenix"
+ },
+ {
+  "abbr": "AR",
+  "name": "Arkansas",
+  "neighbors": "Missouri, Tennessee, Mississippi, Louisiana, Texas and Oklahoma",
+  "pin_city": "Little Rock"
+ },
+ {
+  "abbr": "CA",
+  "name": "California",
+  "neighbors": "Oregon, Nevada, Arizona, Mexico and the Pacific Ocean",
+  "pin_city": "Fresno"
+ },
+ {
+  "abbr": "CO",
+  "name": "Colorado",
+  "neighbors": "Wyoming, Nebraska, Kansas, Oklahoma, New Mexico and Utah",
+  "pin_city": "Denver"
+ },
+ {
+  "abbr": "CT",
+  "name": "Connecticut",
+  "neighbors": "Massachusetts, Rhode Island, New York and Long Island Sound",
+  "pin_city": "Hartford"
+ },
+ {
+  "abbr": "DE",
+  "name": "Delaware",
+  "neighbors": "Pennsylvania, New Jersey, Maryland and Delaware Bay",
+  "pin_city": "Dover"
+ },
+ {
+  "abbr": "FL",
+  "name": "Florida",
+  "neighbors": "Georgia, Alabama and the Gulf of Mexico",
+  "pin_city": "Orlando"
+ },
+ {
+  "abbr": "GA",
+  "name": "Georgia",
+  "neighbors": "Florida, Alabama, Tennessee, North Carolina, South Carolina and the Atlantic Ocean",
+  "pin_city": "Atlanta"
+ },
+ {
+  "abbr": "ID",
+  "name": "Idaho",
+  "neighbors": "Washington, Oregon, Nevada, Utah, Wyoming, Montana and Canada",
+  "pin_city": "Boise"
+ },
+ {
+  "abbr": "IL",
+  "name": "Illinois",
+  "neighbors": "Wisconsin, Indiana, Kentucky, Missouri, Iowa and Lake Michigan",
+  "pin_city": "Springfield"
+ },
+ {
+  "abbr": "IN",
+  "name": "Indiana",
+  "neighbors": "Michigan, Ohio, Kentucky, Illinois and Lake Michigan",
+  "pin_city": "Indianapolis"
+ },
+ {
+  "abbr": "IA",
+  "name": "Iowa",
+  "neighbors": "Minnesota, Wisconsin, Illinois, Missouri, Nebraska and South Dakota",
+  "pin_city": "Des Moines"
+ },
+ {
+  "abbr": "KS",
+  "name": "Kansas",
+  "neighbors": "Nebraska, Missouri, Oklahoma and Colorado",
+  "pin_city": "Wichita"
+ },
+ {
+  "abbr": "KY",
+  "name": "Kentucky",
+  "neighbors": "Indiana, Ohio, West Virginia, Virginia, Tennessee, Missouri and Illinois",
+  "pin_city": "Lexington"
+ },
+ {
+  "abbr": "LA",
+  "name": "Louisiana",
+  "neighbors": "Arkansas, Mississippi, Texas and the Gulf of Mexico",
+  "pin_city": "Baton Rouge"
+ },
+ {
+  "abbr": "ME",
+  "name": "Maine",
+  "neighbors": "New Hampshire, Canada and the Atlantic Ocean",
+  "pin_city": "Bangor"
+ },
+ {
+  "abbr": "MD",
+  "name": "Maryland",
+  "neighbors": "Pennsylvania, Delaware, Virginia, West Virginia and the Chesapeake Bay",
+  "pin_city": "Baltimore"
+ },
+ {
+  "abbr": "MA",
+  "name": "Massachusetts",
+  "neighbors": "New Hampshire, Vermont, New York, Connecticut, Rhode Island and the Atlantic Ocean",
+  "pin_city": "Worcester"
+ },
+ {
+  "abbr": "MI",
+  "name": "Michigan",
+  "neighbors": "Ohio, Indiana, Wisconsin, Canada and the Great Lakes",
+  "pin_city": "Lansing"
+ },
+ {
+  "abbr": "MN",
+  "name": "Minnesota",
+  "neighbors": "Canada, Wisconsin, Iowa, South Dakota, North Dakota and Lake Superior",
+  "pin_city": "Minneapolis"
+ },
+ {
+  "abbr": "MS",
+  "name": "Mississippi",
+  "neighbors": "Tennessee, Alabama, Louisiana, Arkansas and the Gulf of Mexico",
+  "pin_city": "Jackson"
+ },
+ {
+  "abbr": "MO",
+  "name": "Missouri",
+  "neighbors": "Iowa, Illinois, Kentucky, Tennessee, Arkansas, Oklahoma, Kansas and Nebraska",
+  "pin_city": "Columbia"
+ },
+ {
+  "abbr": "MT",
+  "name": "Montana",
+  "neighbors": "Canada, North Dakota, South Dakota, Wyoming and Idaho",
+  "pin_city": "Billings"
+ },
+ {
+  "abbr": "NE",
+  "name": "Nebraska",
+  "neighbors": "South Dakota, Iowa, Missouri, Kansas, Colorado and Wyoming",
+  "pin_city": "Lincoln"
+ },
+ {
+  "abbr": "NV",
+  "name": "Nevada",
+  "neighbors": "Oregon, Idaho, Utah, Arizona and California",
+  "pin_city": "Las Vegas"
+ },
+ {
+  "abbr": "NH",
+  "name": "New Hampshire",
+  "neighbors": "Canada, Maine, Massachusetts, Vermont and the Atlantic Ocean",
+  "pin_city": "Concord"
+ },
+ {
+  "abbr": "NJ",
+  "name": "New Jersey",
+  "neighbors": "New York, Pennsylvania, Delaware and the Atlantic Ocean",
+  "pin_city": "Trenton"
+ },
+ {
+  "abbr": "NM",
+  "name": "New Mexico",
+  "neighbors": "Colorado, Oklahoma, Texas, Arizona and Mexico",
+  "pin_city": "Albuquerque"
+ },
+ {
+  "abbr": "NY",
+  "name": "New York",
+  "neighbors": "Canada, Vermont, Massachusetts, Connecticut, New Jersey, Pennsylvania, the Great Lakes and the Atlantic Ocean",
+  "pin_city": "Syracuse"
+ },
+ {
+  "abbr": "NC",
+  "name": "North Carolina",
+  "neighbors": "Virginia, Tennessee, Georgia, South Carolina and the Atlantic Ocean",
+  "pin_city": "Raleigh"
+ },
+ {
+  "abbr": "ND",
+  "name": "North Dakota",
+  "neighbors": "Canada, Minnesota, South Dakota and Montana",
+  "pin_city": "Bismarck"
+ },
+ {
+  "abbr": "OH",
+  "name": "Ohio",
+  "neighbors": "Michigan, Pennsylvania, West Virginia, Kentucky, Indiana and Lake Erie",
+  "pin_city": "Columbus"
+ },
+ {
+  "abbr": "OK",
+  "name": "Oklahoma",
+  "neighbors": "Kansas, Missouri, Arkansas, Texas, New Mexico and Colorado",
+  "pin_city": "Oklahoma City"
+ },
+ {
+  "abbr": "OR",
+  "name": "Oregon",
+  "neighbors": "Washington, Idaho, Nevada, California and the Pacific Ocean",
+  "pin_city": "Bend"
+ },
+ {
+  "abbr": "PA",
+  "name": "Pennsylvania",
+  "neighbors": "New York, New Jersey, Delaware, Maryland, West Virginia, Ohio and Lake Erie",
+  "pin_city": "Harrisburg"
+ },
+ {
+  "abbr": "RI",
+  "name": "Rhode Island",
+  "neighbors": "Massachusetts, Connecticut and the Atlantic Ocean",
+  "pin_city": "Providence"
+ },
+ {
+  "abbr": "SC",
+  "name": "South Carolina",
+  "neighbors": "North Carolina, Georgia and the Atlantic Ocean",
+  "pin_city": "Columbia"
+ },
+ {
+  "abbr": "SD",
+  "name": "South Dakota",
+  "neighbors": "North Dakota, Minnesota, Iowa, Nebraska, Wyoming and Montana",
+  "pin_city": "Pierre"
+ },
+ {
+  "abbr": "TN",
+  "name": "Tennessee",
+  "neighbors": "Kentucky, Virginia, North Carolina, Georgia, Alabama, Mississippi, Arkansas and Missouri",
+  "pin_city": "Nashville"
+ },
+ {
+  "abbr": "TX",
+  "name": "Texas",
+  "neighbors": "Oklahoma, New Mexico, Arkansas, Louisiana, Mexico and the Gulf of Mexico",
+  "pin_city": "Austin"
+ },
+ {
+  "abbr": "UT",
+  "name": "Utah",
+  "neighbors": "Idaho, Wyoming, Colorado, New Mexico, Arizona and Nevada",
+  "pin_city": "Salt Lake City"
+ },
+ {
+  "abbr": "VT",
+  "name": "Vermont",
+  "neighbors": "Canada, New Hampshire, Massachusetts and New York",
+  "pin_city": "Montpelier"
+ },
+ {
+  "abbr": "VA",
+  "name": "Virginia",
+  "neighbors": "Maryland, West Virginia, Kentucky, Tennessee, North Carolina and the Atlantic Ocean",
+  "pin_city": "Richmond"
+ },
+ {
+  "abbr": "WA",
+  "name": "Washington",
+  "neighbors": "Canada, Idaho, Oregon and the Pacific Ocean",
+  "pin_city": "Yakima"
+ },
+ {
+  "abbr": "WV",
+  "name": "West Virginia",
+  "neighbors": "Pennsylvania, Maryland, Virginia, Kentucky and Ohio",
+  "pin_city": "Charleston"
+ },
+ {
+  "abbr": "WI",
+  "name": "Wisconsin",
+  "neighbors": "Michigan, Minnesota, Iowa, Illinois, Lake Superior and Lake Michigan",
+  "pin_city": "Madison"
+ },
+ {
+  "abbr": "WY",
+  "name": "Wyoming",
+  "neighbors": "Montana, South Dakota, Nebraska, Colorado, Utah and Idaho",
+  "pin_city": "Casper"
+ }
+]

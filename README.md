@@ -13,6 +13,7 @@ ABD ilçelerinin konut piyasasını iki kaynaktan okur ve her ilçe için tek ke
 5. Eyaleti seç, "Verileri çek". Florida: 69 × 6 = 414 FRED isteği ≈ 4 dk, sonra Redfin okuması 1-2 dk.
 
 Arayüz MainForm.Designer.cs'te; Visual Studio'da MainForm.cs'e çift tıkla (ya da Shift+F7) tasarımcı açılır. Davranış MainForm.cs'te.
+Ana ekran iki sekme: "İlçeler" (tablo, grafik, okuma) ve "Video üretimi" (Harita Stüdyosu ve Flow intro prompt'u).
 
 "Redfin'i mevcut sonuca ekle": FRED'i yeniden çekmeden, yüklü sonuca Redfin satış verisini ekler (önce "Redfin verisini indir").
 
@@ -30,11 +31,18 @@ Her ilçe için "aylardır satılamayan tek bir ev" seçer. Tabloda ilçeleri se
 - Sonuç sağ panelin en üstünde "EV KARTI" olarak görünür; ranking_XX.csv'ye house_card sütunu eklenir.
 - Redfin engellerse ("Access Denied" / 403) 60 sn bekleyip bir kez daha dener, olmazsa ilçeyi atlar ve adresi log_listings.txt'e yazar.
 
-## Harita Stüdyosu (video haritaları)
-Üçüncü satırdaki "Harita Stüdyosu" klasörü otomatik bulunur (FredPull\harita-studyosu); değilse "Seç…".
-- out\metinler_XX.csv (senaryodan: order, fips, county, focus_sub, focus_stat) videodaki ilçe sırasını ve etiket metinlerini verir. Yoksa tabloda seçili ilçeler kullanılır.
+## Video üretimi sekmesi
+### Animasyon — Harita Stüdyosu (video haritaları)
+"Harita Stüdyosu klasörü" otomatik bulunur (FredPull\harita-studyosu); değilse "Seç…".
+- out\metinler_XX.csv (senaryodan: order, fips, county, focus_sub, focus_stat) videodaki ilçe sırasını ve etiket metinlerini verir; içeriği sekmedeki tabloda görünür. "Metin dosyası seç…" başka yerdeki bir CSV'yi bu adla out\ klasörüne kopyalar (varsa üzerine yazmayı sorar). Dosya yoksa "İlçeler" tablosunda seçili ilçeler kullanılır.
 - "Stüdyo projesi oluştur": giriş haritası + her ilçe için yakınlaşma ve fiyat merdiveni sahneleri olan projeyi stüdyonun projects klasörüne yazar ve stüdyoya doğrulatır. Stüdyo arayüzünde "Proje aç…" listesinde görünür.
-- "Stüdyoda render al": projeyi oluşturur, render'ı başlatır (ilerleme alt çubukta, "İptal" durdurur), bitince çıktı klasörünü açar.
+- "Stüdyoda render al": projeyi oluşturur, render'ı başlatır (ilerleme alt çubukta, "İptal" durdurur), bitince çıktı klasörünü açar. "Çıktı klasörünü aç" son render'ın klasörünü sonradan da açar.
+
+### Intro prompt'u — Flow
+Google Flow'a yapıştırılacak 10 saniyelik harita intro'su prompt'u, seçili eyalete göre hazır gelir.
+- "Komşular" ve "Pin şehri" PromptData\states_intro.json'dan dolar; değiştirirsen o eyalet için hatırlanır (exe yanında intro_overrides.json). "Varsayılana dön" eski hâline getirir.
+- Önizleme kutusu PromptData\intro_prompt_template.txt'nin doldurulmuş hâlidir; "Kopyala" panoya alır, "Şablonu aç" şablonu düzenleyicide açar (kaydedince önizleme kendiliğinden yenilenir).
+- Doldurulmamış bir [YER TUTUCU] kalırsa ya da eyalet dosyada yoksa (Alaska, Hawaii, DC) kırmızı uyarı çıkar; kutuları elle doldur.
 
 ## Ev detayları
 Tabloda satıra çift tıkla ya da "Ev detayları": adaylar, fiyat geçmişi ve grafiği, referans fotoğraflar.
