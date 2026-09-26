@@ -29,6 +29,7 @@ Her ilçe için "aylardır satılamayan tek bir ev" seçer. Tabloda ilçeleri se
 - Redfin yine 403 verirse "Açık Chrome'a bağlan (9222)" kutusunu işaretle: Chrome'u `chrome.exe --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\pw-chrome"` ile başlat (program bağlanamazsa bunu önerir ve başlatabilir), Redfin'i o pencerede bir kez elle aç, sonra "Ev kartlarını topla". Program yeni bir sekmede çalışır, bitince Chrome'un açık kalır.
 - Kural: ≥90 gün ilanda, yeni inşaat değil, en az 2 oda; en eski 5 aday içinden fiyat geçmişinde 2+ indirim alan (yoksa 1 indirim + 120 gün) seçilir.
 - Sonuç sağ panelin en üstünde "EV KARTI" olarak görünür; ranking_XX.csv'ye house_card sütunu eklenir.
+- İlçe yeniden toplanırsa önceki seçili ev (elle seçilmiş olsa da) yeni aday listesinde hâlâ varsa seçili kalır; yoksa program yeni ev seçer ve toplama sonunda uyarır.
 - Redfin engellerse ("Access Denied" / 403) 60 sn bekleyip bir kez daha dener, olmazsa ilçeyi atlar ve adresi log_listings.txt'e yazar.
 
 ## Video üretimi sekmesi
@@ -60,6 +61,7 @@ Google Flow'a yapıştırılacak 10 saniyelik harita intro'su prompt'u, seçili 
 - hastaneler_XX.csv — CMS hastane listesi (eyalet + komşu eyaletler) ve adreslerin koordinatları (Census Geocoder).
 - havalimanlari.csv — eyaletteki tarifeli seferli büyük/orta havalimanları (OurAirports).
 - manifest.json — her dosyanın kaynağı, çekiliş zamanı, veri dönemi, satır sayısı ve uyarıları.
+- Seçili evlerin Redfin ilan sayfaları açılır (tarayıcı açılır, ev başına ~30 sn): açıklama, vergi, aidat, sel ve iklim bilgisi okunur. Aday listesi, seçili ev ve kart metni değişmez.
 - Ev kartı varsa: eksik koordinatlar (Census Geocoder, bulamazsa OpenStreetMap) ve FEMA sel bölgesi evlere eklenir; out\ev_detaylari_XX.md yazılır. "Ev kartlarını topla" bunları her toplamada kendisi yapar, ayrıca ilan sayfasındaki açıklama, vergi, aidat, Redfin'in sel/iklim riski bilgilerini ham olarak kaydeder.
 - FEMA'nın kendi servisine bağlanılamazsa Esri Living Atlas'taki FEMA kopyası kullanılır ve bu, evin kaydına yazılır.
 

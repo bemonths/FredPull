@@ -192,8 +192,10 @@ public sealed class RedfinListingPicker : IAsyncDisposable
 
     // ---------- ilçe başına akış ----------
 
+    /// previousChosenUrl: ilçenin önceki seçili evi (elle seçilmiş olabilir). Yeni aday listesinde varsa ve fiyat geçmişi
+    /// okunduysa seçili kalır; yoksa kuralla seçilir ve card.Warning dolar.
     public async Task<HouseCard> CollectAsync(County county, double? medianListPrice, bool condo, (int Min, int Max)? band,
-        IProgress<string> status, CancellationToken ct)
+        IProgress<string> status, CancellationToken ct, HouseCandidate? previousChosen = null)
     {
         _status = status;
         _label = county.Name;
@@ -228,9 +230,8 @@ public sealed class RedfinListingPicker : IAsyncDisposable
                 ApplyHistory(c, events);
                 FillFromListingPage(c, page.Html);      // aynı sayfadan fotoğraf adresleri ve (eksikse) konum
                 // ek veri katmanı: aynı ziyaretteki ham ayrıntılar; ham yanıtlar alanları doğrulamak için diske
-                var bodies = page.Captured.Concat(EmbeddedBlocks(page.Html)).ToList();
-                c.Redfin = RedfinDetailsReader.Read(bodies, page.Html, c.Url);
-                SaveRaw(county, c, page);
+                c.Redfin = RedfinDetailsReader.Read(Bodies(page), page.Html, c.Url);
+                SaveRaw(county.State, county.Fips, c, page);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) when (!Closed && ex is not BlockedException)     // engel: ilçeyi atla
@@ -240,7 +241,24 @@ public sealed class RedfinListingPicker : IAsyncDisposable
             }
         }
 
-        card.Chosen = Choose(card.Candidates);
+        // önceki seçim (elle yapılmış olabilir) yeni listede varsa korunur
+        var kept = previousChosen == null ? null : card.Candidates.FirstOrDefault(c => c.Url == previousChosen.Url);
+        if (kept != null && kept.HasHistory && kept.OriginalPrice.HasValue && kept.CurrentPrice.HasValue)
+        {
+            card.Chosen = kept;
+            _log($"{county.Name}: önceki seçili ev korundu — {kept.Street}");
+        }
+        else
+        {
+            card.Chosen = Choose(card.Candidates);
+            if (previousChosen != null && card.Chosen?.Url != previousChosen.Url)
+                card.Warning = kept == null
+                    ? $"{county.Name}: önceki seçili ev ({previousChosen.Street}, {previousChosen.City}) artık aday listesinde yok; " +
+                      (card.Chosen != null ? "yeni ev seçildi." : "yeni ev de seçilemedi.")
+                    : $"{county.Name}: önceki seçili evin ({previousChosen.Street}, {previousChosen.City}) fiyat geçmişi okunamadı; " +
+                      (card.Chosen != null ? "yeni ev seçildi." : "yeni ev de seçilemedi.");
+            if (card.Warning != null) _log(card.Warning);
+        }
         if (card.Chosen == null)
             card.Note = card.Candidates.Count == 0
                 ? $"uygun ev bulunamadı (listede {homes.Count} ilan, kurala uyan aday yok)"
@@ -443,9 +461,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     /// Fiyat geçmişi + sayfa (fotoğraf adresleri, konum ve ham ayrıntılar aynı sayfadan okunur).
     async Task<(List<HistoryEvent> Events, PageData Page)> LoadHistoryAsync(string url, CancellationToken ct)
     {
-        // Hazır: fiyat geçmişi bir yanıtta ya da HTML'e gömülü blokta var (genelde ilk HTML'de gelir)
-        var page = await OpenAsync(url, u => u.Contains("/stingray/"),
-            d => ReadEvents(d.Captured) != null || ReadEvents(EmbeddedBlocks(d.Html)) != null, ct);
+        var page = await OpenListingAsync(url, ct);
 
         // 1) sayfanın kendi yanıtları; 2) olmazsa HTML'e gömülü bloklar
         var events = ReadEvents(page.Captured) ?? ReadEvents(EmbeddedBlocks(page.Html))
@@ -453,13 +469,39 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         return (events, page);
     }
 
+    /// İlan sayfası: hazır = fiyat geçmişi bir yanıtta ya da HTML'e gömülü blokta var (genelde ilk HTML'de gelir). Sonra sayfa
+    /// aşağı kaydırılır; vergi, iklim riski ve sel bölümleri görünür olunca yüklenen yanıtlar da yakalansın.
+    Task<PageData> OpenListingAsync(string url, CancellationToken ct) =>
+        OpenAsync(url, u => u.Contains("/stingray/"),
+            d => ReadEvents(d.Captured) != null || ReadEvents(EmbeddedBlocks(d.Html)) != null, ct, scroll: true);
+
+    static List<string> Bodies(PageData page) => page.Captured.Concat(EmbeddedBlocks(page.Html)).ToList();
+
+    /// "Ek verileri çek": seçili evin ilan sayfasını açıp yalnızca ham ayrıntıları (RedfinDetailsReader) ve eksikse konumu
+    /// doldurur. Aday listesi, seçim, fiyat geçmişi, fotoğraflar ve kart metni değişmez. Sayfada hiçbir alan bulunamazsa
+    /// eski ayrıntılar korunur ve false döner (çağıran uyarı yazar). Sayfa açılamazsa istisna (BlockedException dahil).
+    public async Task<bool> ReadDetailsAsync(string state, string fips, HouseCandidate c, IProgress<string> status, CancellationToken ct)
+    {
+        _status = status;
+        _label = c.Street;
+        status.Report($"{c.Street} — ilan sayfası (ayrıntılar)");
+        var page = await OpenListingAsync(c.Url, ct);
+        SaveRaw(state, fips, c, page);
+        if ((c.Lat == null || c.Lng == null) && ExtractLatLng(page.Html) is { } ll) (c.Lat, c.Lng, c.LatLngSource) = (ll.Lat, ll.Lng, "redfin");
+        var d = RedfinDetailsReader.Read(Bodies(page), page.Html, c.Url);
+        _log($"{c.Street}: ilan ayrıntıları {d.Found.Count} alan ({string.Join(", ", d.Found.Keys)}) — {c.Url}");
+        if (d.Found.Count == 0) return false;
+        c.Redfin = d;
+        return true;
+    }
+
     /// İlan sayfasının yakalanan yanıtları ve gömülü blokları: out\redfin_raw\{ST}\{fips}_{sokak}.json. Ham ayrıntı
     /// alanlarının (RedfinDetailsReader) nerede durduğunu gerçek sayfalardan doğrulamak için; hata yazma işini durdurmaz.
-    void SaveRaw(County county, HouseCandidate c, PageData page)
+    void SaveRaw(string state, string fips, HouseCandidate c, PageData page)
     {
         try
         {
-            var dir = Path.Combine(_outDir, "redfin_raw", county.State);
+            var dir = Path.Combine(_outDir, "redfin_raw", state);
             Directory.CreateDirectory(dir);
             var slug = Regex.Replace(c.Street, @"[^A-Za-z0-9]+", "_").Trim('_');
             var raw = new
@@ -468,8 +510,9 @@ public sealed class RedfinListingPicker : IAsyncDisposable
                 saved = DateTime.Now,
                 responses = page.Urls.Zip(page.Captured, (u, b) => new { url = u, body = b }).ToList(),
                 embedded = EmbeddedBlocks(page.Html).ToList(),
+                page_text = RedfinDetailsReader.PageText(page.Html),   // kaydırmadan sonra görünen metin
             };
-            File.WriteAllText(Path.Combine(dir, $"{county.Fips}_{slug}.json"), JsonSerializer.Serialize(raw), new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(dir, $"{fips}_{slug}.json"), JsonSerializer.Serialize(raw), new UTF8Encoding(false));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _log($"{c.Street}: ham yanıt kaydedilemedi — {ex.Message}"); }
     }
@@ -782,7 +825,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     /// Sayfayı açar (DOMContentLoaded); capture'a uyan yanıtların gövdelerini toplar ve ready sağlanana kadar en çok DataWaitMs bekler.
     /// Redfin arka planda hiç susmadığı için NetworkIdle beklenmez (her sayfada 45 sn boşa giderdi).
     /// Engel sayfasında 60 sn bekleyip bir kez daha dener, sonra BlockedException.
-    async Task<PageData> OpenAsync(string url, Func<string, bool>? capture, Func<PageData, bool>? ready, CancellationToken ct)
+    async Task<PageData> OpenAsync(string url, Func<string, bool>? capture, Func<PageData, bool>? ready, CancellationToken ct, bool scroll = false)
     {
         for (int attempt = 1; ; attempt++)
         {
@@ -825,6 +868,11 @@ public sealed class RedfinListingPicker : IAsyncDisposable
                 }
                 if (ready != null && !ready(data))
                     _log($"{_label}: {DataWaitMs / 1000} sn içinde beklenen veri gelmedi, eldekiyle devam — {url}");
+                if (scroll)
+                {
+                    await ScrollAsync(ct);
+                    data = Snapshot(await SafeAsync(() => _page.ContentAsync()), pending);
+                }
                 return data;
             }
             finally { _page.Response -= OnResponse; }
@@ -832,6 +880,21 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     }
 
     const int DataWaitMs = 20_000;
+
+    /// Sayfayı ekran ekran aşağı kaydırır (en çok 20 adım, adım başına 0,6-1 sn), sonunda 2 sn bekler; görünür olunca yüklenen
+    /// bölümler (vergi, iklim riski, sel) istek atsın. Kaydırma hatası sayfayı bozmaz.
+    async Task ScrollAsync(CancellationToken ct)
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            bool bottom;
+            try { bottom = await _page.EvaluateAsync<bool>("() => { window.scrollBy(0, Math.round(window.innerHeight * 0.85)); return window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4; }"); }
+            catch (PlaywrightException) { return; }
+            await Task.Delay(_rnd.Next(600, 1001), ct);
+            if (bottom) break;
+        }
+        await Task.Delay(2000, ct);
+    }
 
     /// O ana kadar gövdesi okunmuş yanıtlar + sayfanın HTML'i.
     static PageData Snapshot(string html, List<(string Url, Task<string?> Body)> pending)

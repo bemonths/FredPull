@@ -282,12 +282,14 @@ public partial class MainForm : Form
         }
         var neighbors = ExtraData.NeighborStates(_baseDir, st);
         var cards = _snap.State == st ? _cards.Values.ToList() : new List<HouseCard>();
+        int chosenCount = cards.Count(c => c.Chosen != null);
         var dir = Path.Combine(_outDir, $"ek_{st}");
         if (MessageBox.Show($"{StateName(st)} için ham ek veriler out\\ek_{st}\\ klasörüne indirilecek:\n" +
                             $"• Census ACS 5 yıllık ({counties.Count} county + eyalet + ABD){(censusKey.Length == 0 ? " — Census anahtarı yok, bu adım büyük ihtimalle reddedilir" : "")}\n" +
                             $"• İnşaat izinleri (FRED, {counties.Count} seri, ~{counties.Count / 2 + 5} sn)\n" +
                             $"• Hastaneler (CMS): {string.Join(", ", new[] { st }.Concat(neighbors))}; adresler Census Geocoder ile koordinata\n" +
                             "• Havalimanları (OurAirports)\n" +
+                            (chosenCount > 0 ? $"• Seçili {chosenCount} evin Redfin ilan sayfası (tarayıcı açılır, ev başına ~30 sn): açıklama, vergi, aidat, sel ve iklim bilgisi; seçimler değişmez\n" : "") +
                             (cards.Count > 0 ? $"• Ev kartları ({cards.Count} ilçe): eksik koordinat ve FEMA sel bölgesi; out\\ev_detaylari_{st}.md\n" : "") +
                             "\nBaşlasın mı?", "Ek veriler", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
@@ -331,6 +333,8 @@ public partial class MainForm : Form
             });
             await Step($"hastaneler_{st}.csv", () => extra.HospitalsAsync(st, new[] { st }.Concat(neighbors).ToList(), dir, status, ct));
             await Step("havalimanlari.csv", () => extra.AirportsAsync(st, dir, ct));
+            if (chosenCount > 0)
+                await Step($"listings_{st}.json (Redfin ilan ayrıntıları)", () => ReadChosenDetailsAsync(st, cards, Log, status, ct));
             if (cards.Count > 0)
                 await Step($"listings_{st}.json (ev kartları)", async () =>
                 {
@@ -360,6 +364,45 @@ public partial class MainForm : Form
             _status.Text = "Ek veriler iptal edildi.";
         }
         finally { EndWork(); }
+    }
+
+    /// Her ilçenin yalnızca seçili evinin ilan sayfası açılır, ham ayrıntılar (ve eksikse konum) okunur. Aday listesi, seçim,
+    /// fiyat geçmişi ve kart metni değişmez. Açılamayan ya da alanı bulunamayan ev atlanır, uyarı yazılır.
+    async Task<ExtraData.Entry> ReadChosenDetailsAsync(string st, List<HouseCard> cards, Action<string> log, IProgress<string> status, CancellationToken ct)
+    {
+        var e = new ExtraData.Entry { File = $"listings_{st}.json (Redfin ilan ayrıntıları)", Source = "Redfin ilan sayfaları (seçili evler; seçim değiştirilmez)" };
+        var chosen = cards.Where(c => c.Chosen != null).OrderBy(c => c.County).ToList();
+        var picker = await Task.Run(() => RedfinListingPicker.StartAsync(_baseDir, _outDir, _chkCdp.Checked, log, status), ct);
+        int ok = 0;
+        try
+        {
+            foreach (var card in chosen)
+            {
+                ct.ThrowIfCancellationRequested();
+                var h = card.Chosen!;
+                try
+                {
+                    if (await Task.Run(() => picker.ReadDetailsAsync(st, card.Fips, h, status, ct), ct)) ok++;
+                    else e.Warnings.Add($"{card.County}: {h.Street} ilan sayfasında ayrıntı bulunamadı; ev atlandı.");
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    if (picker.Closed) throw new InvalidOperationException("Tarayıcı penceresi kapatıldı; ilan ayrıntıları durdu.");
+                    e.Warnings.Add($"{card.County}: {h.Street} ilan sayfası açılamadı ({ex.Message.Split('\n')[0]}); ev atlandı.");
+                }
+            }
+        }
+        finally
+        {
+            await Task.Run(() => picker.DisposeAsync().AsTask());
+            RedfinListingPicker.SaveListings(_outDir, st, _cards.Values);
+        }
+        e.Rows = ok;
+        e.Details["seçili_ev"] = chosen.Count.ToString(CultureInfo.InvariantCulture);
+        e.Details["ayrıntısı_okunan"] = ok.ToString(CultureInfo.InvariantCulture);
+        e.Details["ham_yanıtlar"] = $"out\\redfin_raw\\{st}\\";
+        log($"Redfin ilan ayrıntıları: {ok}/{chosen.Count} seçili ev");
+        return e;
     }
 
     void AttachRedfin(Snapshot snap, IProgress<string> progress, CancellationToken ct)
@@ -474,6 +517,7 @@ public partial class MainForm : Form
         Log($"--- {state}, {targets.Count} ilçe, {modeName}, {bandText}{(cdp ? ", açık Chrome (9222)" : "")}");
 
         int done = 0, found = 0;
+        var selectionWarnings = new List<string>();
         _progress.Maximum = targets.Count;
         var status = new Progress<string>(s => _status.Text = $"{Math.Min(done + 1, targets.Count)}/{targets.Count}  {s}");
         RedfinListingPicker? picker = null;
@@ -488,7 +532,10 @@ public partial class MainForm : Form
                 HouseCard card;
                 try
                 {
-                    card = await Task.Run(() => picker.CollectAsync(r.County, r.ListPrice, condo, band, status, ct), ct);
+                    // önceki seçili ev (elle seçilmiş olabilir) yeni aday listesinde varsa seçili kalır
+                    var previous = _cards.TryGetValue(r.County.Fips, out var prevCard) ? prevCard.Chosen : null;
+                    card = await Task.Run(() => picker.CollectAsync(r.County, r.ListPrice, condo, band, status, ct, previous), ct);
+                    if (card.Warning != null) selectionWarnings.Add(card.Warning);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -551,6 +598,9 @@ public partial class MainForm : Form
             }
             _listingLog = null;
             SetBusy(false);
+            if (selectionWarnings.Count > 0)
+                MessageBox.Show("Önceki seçim korunamayan ilçeler:\n\n" + string.Join("\n", selectionWarnings.Select(w => "• " + w)),
+                    "Ev kartları", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 

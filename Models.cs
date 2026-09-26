@@ -160,6 +160,8 @@ public class HouseCard
     public HouseCandidate? Chosen { get; set; }
     public string CardText { get; set; } = "";
     public string Note { get; set; } = "";          // seçim yoksa neden
+    /// Bu toplamada önceki seçili ev korunamadıysa uyarı (dosyaya yazılmaz).
+    [System.Text.Json.Serialization.JsonIgnore] public string? Warning { get; set; }
 }
 
 /// Bir eyaletin bütün çekilmiş verisi; out\cache_XX.json olarak saklanır.

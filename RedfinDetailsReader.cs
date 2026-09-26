@@ -131,11 +131,23 @@ public static class RedfinDetailsReader
     static readonly Regex InsuranceText = new(@"flood insurance[\s\S]{0,300}?(\$[\d,]+\s*[–-]\s*\$[\d,]+)", RegexOptions.IgnoreCase);
     static readonly Regex HoaText = new(@"HOA\s*Dues[:\s]*(\$[\d,]+)(?:\s*/\s*(month|mo|year|yr|quarter|qtr))?", RegexOptions.IgnoreCase);
 
+    static readonly Regex Spaces = new(@"\s+");
+    static readonly Regex RemarksBlock = new(@"<div[^>]*\bid=""marketing-remarks-scroll""[^>]*>([\s\S]*?)</div>", RegexOptions.IgnoreCase);
+
+    /// Sayfanın görünen metni (script/style ve etiketler atılır, boşluklar teke iner).
+    public static string PageText(string html) =>
+        html.Length == 0 ? "" : Spaces.Replace(System.Net.WebUtility.HtmlDecode(Tags.Replace(html, " ")), " ").Trim();
+
     /// JSON'da bulunamayanlar için sayfanın görünen metni (sayfada yazdığı gibi).
     static void FromPageText(string html, RedfinDetails d)
     {
+        if (d.Description == null && RemarksBlock.Match(html) is { Success: true } rb && PageText(rb.Groups[1].Value) is { Length: >= 30 } remarks)
+        {
+            d.Description = remarks;
+            d.Found["Description"] = "sayfa: #marketing-remarks-scroll";
+        }
         if (html.Length == 0 || (d.FloodZone != null && d.FloodInsuranceEstimate != null && d.Hoa != null)) return;
-        var text = System.Net.WebUtility.HtmlDecode(Tags.Replace(html, " "));
+        var text = PageText(html);
         if (d.FloodZone == null && FemaZoneText.Match(text) is { Success: true } z)
         {
             d.FloodZone = z.Groups[1].Value;
