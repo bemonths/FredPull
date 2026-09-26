@@ -620,9 +620,11 @@ public partial class MainForm : Form
                 MessageBox.Show(StudioSummary(res) + "\nHatalar düzelmeden render başlamaz.", "Stüdyoda render al", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            // Geliştirme bilgisayarında render videonun ~5 katı sürüyor (ENTEGRASYON.md §6)
-            var estimate = TimeSpan.FromSeconds(res.VideoSeconds * 5);
-            if (MessageBox.Show(StudioSummary(res) + $"\nRender tahminen {Math.Ceiling(estimate.TotalMinutes)} dk sürer (işlemciye bağlı). İptal ile durdurulabilir.\nBaşlasın mı?",
+            // Stüdyo v1.3 sahneleri paralel çizer (ENTEGRASYON.md §6). Bu bilgisayarda (16 çekirdek) ölçülen: 31 sahnelik
+            // Florida projesi, 3 dk 49 sn video → 66 sn; 2 sahnelik örnek, 24 sn video → 18 sn.
+            var estimate = TimeSpan.FromSeconds(res.VideoSeconds * 0.3 + 15);
+            var estText = estimate.TotalSeconds < 90 ? $"{Math.Ceiling(estimate.TotalSeconds / 10) * 10:0} sn" : $"{Math.Ceiling(estimate.TotalMinutes)} dk";
+            if (MessageBox.Show(StudioSummary(res) + $"\nRender tahminen {estText} sürer (işlemciye bağlı; sahneler aynı anda çizilir). İptal ile durdurulabilir.\nBaşlasın mı?",
                     "Stüdyoda render al", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
             _progress.Maximum = 1000;
@@ -666,6 +668,15 @@ public partial class MainForm : Form
             case "progress":
                 int scene = ev.GetProperty("scene").GetInt32(), scenes = ev.GetProperty("scenes").GetInt32();
                 int frame = ev.GetProperty("frame").GetInt32(), total = Math.Max(1, ev.GetProperty("total").GetInt32());
+                if (ev.TryGetProperty("overall", out var ov))
+                {
+                    // paralel render: sahneler aynı anda çizilir, stüdyo toplam kare oranını ve biten sahne sayısını yollar
+                    double all = ov.GetDouble();
+                    int finished = ev.TryGetProperty("finished", out var fi) ? fi.GetInt32() : 0;
+                    _progress.Value = Math.Clamp((int)(all * 1000), 0, 1000);
+                    _status.Text = $"Render: %{all * 100:0} — {finished}/{scenes} sahne bitti (sahneler aynı anda çiziliyor)";
+                    break;
+                }
                 double overall = (scene + (double)frame / total) / Math.Max(1, scenes);
                 _progress.Value = Math.Clamp((int)(overall * 1000), 0, 1000);
                 _status.Text = $"Render: sahne {scene + 1}/{scenes}, kare {frame}/{total} — %{overall * 100:0}";
