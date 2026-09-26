@@ -104,6 +104,7 @@ public partial class MainForm : Form
             _status.Text = $"İlçe kataloğu hazır: {_catalog.Count} eyalet, {_catalog.Values.Sum(l => l.Count):N0} ilçe.";
         UpdateCountyCount();
         _btnFetch.Enabled = true;
+        _btnExtra.Enabled = true;
     }
 
     List<County> CurrentCounties()
@@ -261,6 +262,106 @@ public partial class MainForm : Form
         return dict;
     }
 
+    // ---------- ek veriler (ham) ----------
+
+    /// Seçili eyalet için ham ek veriler (ExtraData): Census ACS, inşaat izinleri, hastaneler (komşu eyaletlerle),
+    /// havalimanları; yüklü ev kartlarında eksik koordinat ve FEMA sel bölgesi; manifest ve ev detayı dosyası.
+    /// Bir adım başarısız olursa diğerleri yine çalışır; hatalar özet penceresinde ve out\ek_{ST}\log_ek.txt'de.
+    async void BtnExtra_Click(object? sender, EventArgs e)
+    {
+        var st = SelectedAbbr;
+        var counties = CurrentCounties();
+        if (counties.Count == 0) { MessageBox.Show("Bu eyalet için ilçe listesi yok.", "Ek veriler"); return; }
+        var stateFips = counties[0].Fips[..2];
+        var fredKey = _txtKey.Text.Trim();
+        var censusKey = _txtCensusKey.Text.Trim();
+        if (censusKey != (_settings.CensusKey ?? ""))
+        {
+            _settings.CensusKey = censusKey.Length > 0 ? censusKey : null;
+            SaveSettings();
+        }
+        var neighbors = ExtraData.NeighborStates(_baseDir, st);
+        var cards = _snap.State == st ? _cards.Values.ToList() : new List<HouseCard>();
+        var dir = Path.Combine(_outDir, $"ek_{st}");
+        if (MessageBox.Show($"{StateName(st)} için ham ek veriler out\\ek_{st}\\ klasörüne indirilecek:\n" +
+                            $"• Census ACS 5 yıllık ({counties.Count} county + eyalet + ABD){(censusKey.Length == 0 ? " — Census anahtarı yok, bu adım büyük ihtimalle reddedilir" : "")}\n" +
+                            $"• İnşaat izinleri (FRED, {counties.Count} seri, ~{counties.Count / 2 + 5} sn)\n" +
+                            $"• Hastaneler (CMS): {string.Join(", ", new[] { st }.Concat(neighbors))}; adresler Census Geocoder ile koordinata\n" +
+                            "• Havalimanları (OurAirports)\n" +
+                            (cards.Count > 0 ? $"• Ev kartları ({cards.Count} ilçe): eksik koordinat ve FEMA sel bölgesi; out\\ev_detaylari_{st}.md\n" : "") +
+                            "\nBaşlasın mı?", "Ek veriler", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+        var ct = BeginWork();
+        Directory.CreateDirectory(dir);
+        var logPath = Path.Combine(dir, "log_ek.txt");
+        using var log = new StreamWriter(logPath, true, new UTF8Encoding(false)) { AutoFlush = true };
+        var logLock = new object();
+        void Log(string line) { lock (logLock) log.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {line}"); }
+        var status = new Progress<string>(s => _status.Text = s);
+        var entries = new List<ExtraData.Entry>();
+        Log($"--- {st}: ek veriler ({ExtraData.Principle})");
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            using var extra = new ExtraData(Log);
+
+            async Task Step(string file, Func<Task<ExtraData.Entry>> run)
+            {
+                _status.Text = $"Ek veriler: {file}…";
+                try
+                {
+                    var en = await run();
+                    entries.Add(en);
+                    Log($"{en.File}: {en.Rows} satır{(en.Warnings.Count > 0 ? $", {en.Warnings.Count} uyarı" : "")}");
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    entries.Add(new ExtraData.Entry { File = file, Error = ex.Message });
+                    Log($"{file}: HATA — {ex.Message}");
+                }
+            }
+
+            await Step($"acs_{st}.csv", () => extra.AcsAsync(st, stateFips, censusKey, dir, ct));
+            await Step($"izinler_{st}.csv", async () =>
+            {
+                if (fredKey.Length == 0) throw new InvalidOperationException("FRED API anahtarı gerekli (izin serileri FRED'de).");
+                using var fred = new FredClient(fredKey) { Log = line => Log("FRED " + line) };
+                return await extra.PermitsAsync(fred, st, counties, dir, status, ct);
+            });
+            await Step($"hastaneler_{st}.csv", () => extra.HospitalsAsync(st, new[] { st }.Concat(neighbors).ToList(), dir, status, ct));
+            await Step("havalimanlari.csv", () => extra.AirportsAsync(st, dir, ct));
+            if (cards.Count > 0)
+                await Step($"listings_{st}.json (ev kartları)", async () =>
+                {
+                    var en = await extra.CompleteHousesAsync(st, cards, status, ct);
+                    RedfinListingPicker.SaveListings(_outDir, st, _cards.Values);
+                    ExtraData.WriteHouseDetails(Path.Combine(_outDir, $"ev_detaylari_{st}.md"), st, _cards.Values);
+                    return en;
+                });
+            ExtraData.WriteManifest(dir, st, entries);
+
+            var sb = new StringBuilder($"{StateName(st)} ek verileri ({sw.Elapsed:m\\:ss}) — out\\ek_{st}\\\n\n");
+            foreach (var en in entries)
+                sb.AppendLine(en.Error != null ? $"✗ {en.File}: {en.Error}" : $"✓ {en.File}: {en.Rows} satır{(en.Period.Length > 0 ? $" ({en.Period})" : "")}");
+            var warns = entries.SelectMany(en => en.Warnings.Select(w => $"{en.File}: {w}")).ToList();
+            if (warns.Count > 0)
+            {
+                sb.AppendLine($"\nUyarılar ({warns.Count}):");
+                foreach (var w in warns.Take(12)) sb.AppendLine("  - " + w);
+            }
+            int failed = entries.Count(en => en.Error != null);
+            _status.Text = $"Ek veriler bitti: {entries.Count - failed}/{entries.Count} adım, {warns.Count} uyarı — {dir}";
+            MessageBox.Show(sb.ToString(), "Ek veriler", MessageBoxButtons.OK, failed > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+        }
+        catch (OperationCanceledException)
+        {
+            ExtraData.WriteManifest(dir, st, entries);
+            _status.Text = "Ek veriler iptal edildi.";
+        }
+        finally { EndWork(); }
+    }
+
     void AttachRedfin(Snapshot snap, IProgress<string> progress, CancellationToken ct)
     {
         var us = RedfinLoader.Parse(RedfinPath(RedfinLoader.UsUrl), null, progress, ct);
@@ -318,7 +419,7 @@ public partial class MainForm : Form
     void SetBusy(bool busy)
     {
         Busy = busy;
-        _btnFetch.Enabled = !busy; _btnLoad.Enabled = !busy; _cbState.Enabled = !busy; _btnRedfin.Enabled = !busy;
+        _btnFetch.Enabled = !busy; _btnExtra.Enabled = !busy; _btnLoad.Enabled = !busy; _cbState.Enabled = !busy; _btnRedfin.Enabled = !busy;
         _btnAttachRedfin.Enabled = !busy; _btnHouseCards.Enabled = !busy; _cbHouseMode.Enabled = !busy; _txtBand.Enabled = !busy; _chkCdp.Enabled = !busy;
         _btnStudioBrowse.Enabled = !busy; _btnTextsPick.Enabled = !busy;
         _btnChartsPick.Enabled = !busy; _btnChartAdd.Enabled = !busy; _btnChartDelete.Enabled = !busy;
@@ -376,6 +477,7 @@ public partial class MainForm : Form
         _progress.Maximum = targets.Count;
         var status = new Progress<string>(s => _status.Text = $"{Math.Min(done + 1, targets.Count)}/{targets.Count}  {s}");
         RedfinListingPicker? picker = null;
+        using var extra = new ExtraData(Log);
         try
         {
             _status.Text = cdp ? $"Açık Chrome'a bağlanılıyor ({RedfinListingPicker.CdpEndpoint})..." : "Tarayıcı açılıyor...";
@@ -393,6 +495,17 @@ public partial class MainForm : Form
                     if (picker.Closed) throw new InvalidOperationException("Tarayıcı penceresi kapatıldı; toplama durdu.");
                     Log($"{r.County.Name}: atlandı — {ex.Message}");
                     card = new HouseCard { Fips = r.County.Fips, County = r.County.Name, Mode = modeName, CreatedAt = DateTime.Now, Note = "hata: " + ex.Message };
+                }
+
+                // Ek veri katmanı: koordinatı eksik adaylar Census Geocoder'la, sonra her aday için FEMA sel bölgesi
+                if (card.Candidates.Count > 0)
+                {
+                    try
+                    {
+                        var en = await extra.CompleteHousesAsync(state, new[] { card }, status, ct);
+                        foreach (var w in en.Warnings) Log($"{r.County.Name}: {w}");
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { Log($"{r.County.Name}: koordinat/FEMA tamamlanamadı — {ex.Message}"); }
                 }
 
                 // Hata aldıysa önceki başarılı kartın üstüne yazma
@@ -430,7 +543,12 @@ public partial class MainForm : Form
         finally
         {
             if (picker != null) await Task.Run(() => picker.DisposeAsync().AsTask());
-            if (done > 0) SaveRanking();
+            if (done > 0)
+            {
+                SaveRanking();
+                try { ExtraData.WriteHouseDetails(Path.Combine(_outDir, $"ev_detaylari_{state}.md"), state, _cards.Values); }
+                catch (IOException ex) { Log("ev_detaylari yazılamadı: " + ex.Message); }
+            }
             _listingLog = null;
             SetBusy(false);
         }
@@ -443,6 +561,7 @@ public partial class MainForm : Form
         public string? StudioDir { get; set; }
         public string? LastStudioOut { get; set; }      // son render'ın çıktı klasörü ("Çıktı klasörünü aç")
         public bool Transparent { get; set; }           // stüdyo projesi şeffaf arka planla (MOV) çıksın
+        public string? CensusKey { get; set; }          // Census Data API anahtarı (ek veriler: ACS)
     }
 
     AppSettings _settings = new();
@@ -464,6 +583,7 @@ public partial class MainForm : Form
         }
         _txtStudio.Text = _settings.StudioDir ?? "";
         _chkTransparent.Checked = _settings.Transparent;
+        _txtCensusKey.Text = _settings.CensusKey ?? "";
     }
 
     void ChkTransparent_CheckedChanged(object? sender, EventArgs e)

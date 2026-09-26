@@ -20,7 +20,8 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     public sealed record RedfinRegion(string County, string RegionId, string Url);
     /// Rental: kira ilanı kaydı (satış hikâyesine katılmaz). Raw: Redfin'in ham kaydı (JSON'a teşhis için yazılır).
     sealed record HistoryEvent(DateOnly Date, string Description, int? Price, bool Rental, JsonElement Raw);
-    sealed record PageData(string Html, List<string> Captured);
+    /// Captured: yakalanan yanıt gövdeleri, Urls aynı sırayla adresleri.
+    sealed record PageData(string Html, List<string> Captured, List<string> Urls);
 
     /// Redfin iki denemede de engelledi: ilçe atlanır.
     public sealed class BlockedException(string message) : Exception(message);
@@ -33,6 +34,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     readonly IBrowser? _cdpBrowser;       // açık Chrome'a bağlanıldıysa; kapatılmaz, yalnızca bağlantı kesilir
     IPage _page;
     readonly string _regionsFile;
+    readonly string _outDir;
     readonly Dictionary<string, RedfinRegion> _regions;
     readonly Action<string> _log;
     readonly Random _rnd = new();
@@ -46,6 +48,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     RedfinListingPicker(IPlaywright pw, IBrowserContext ctx, IPage page, IBrowser? cdpBrowser, string outDir, Action<string> log)
     {
         _pw = pw; _ctx = ctx; _page = page; _cdpBrowser = cdpBrowser; _log = log;
+        _outDir = outDir;
         _regionsFile = Path.Combine(outDir, "redfin_regions.json");
         _regions = LoadRegions(_regionsFile);
         if (cdpBrowser != null) cdpBrowser.Disconnected += (_, _) => Closed = true;
@@ -221,9 +224,13 @@ public sealed class RedfinListingPicker : IAsyncDisposable
             status.Report($"{county.Name} — {c.Street} fiyat geçmişi...");
             try
             {
-                var (events, html) = await LoadHistoryAsync(c.Url, ct);
+                var (events, page) = await LoadHistoryAsync(c.Url, ct);
                 ApplyHistory(c, events);
-                FillFromListingPage(c, html);      // aynı sayfadan fotoğraf adresleri ve (eksikse) konum
+                FillFromListingPage(c, page.Html);      // aynı sayfadan fotoğraf adresleri ve (eksikse) konum
+                // ek veri katmanı: aynı ziyaretteki ham ayrıntılar; ham yanıtlar alanları doğrulamak için diske
+                var bodies = page.Captured.Concat(EmbeddedBlocks(page.Html)).ToList();
+                c.Redfin = RedfinDetailsReader.Read(bodies, page.Html, c.Url);
+                SaveRaw(county, c, page);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) when (!Closed && ex is not BlockedException)     // engel: ilçeyi atla
@@ -412,6 +419,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
             Baths = Num(h, "baths"),
             Lat = Num(h, "latLong", "value", "latitude"),
             Lng = Num(h, "latLong", "value", "longitude"),
+            LatLngSource = Num(h, "latLong", "value", "latitude").HasValue ? "redfin" : null,
         };
     }
 
@@ -432,8 +440,8 @@ public sealed class RedfinListingPicker : IAsyncDisposable
 
     // ---------- A5: fiyat geçmişi ve seçim ----------
 
-    /// Fiyat geçmişi + sayfanın HTML'i (fotoğraf adresleri ve konum aynı sayfadan okunur).
-    async Task<(List<HistoryEvent> Events, string Html)> LoadHistoryAsync(string url, CancellationToken ct)
+    /// Fiyat geçmişi + sayfa (fotoğraf adresleri, konum ve ham ayrıntılar aynı sayfadan okunur).
+    async Task<(List<HistoryEvent> Events, PageData Page)> LoadHistoryAsync(string url, CancellationToken ct)
     {
         // Hazır: fiyat geçmişi bir yanıtta ya da HTML'e gömülü blokta var (genelde ilk HTML'de gelir)
         var page = await OpenAsync(url, u => u.Contains("/stingray/"),
@@ -442,7 +450,28 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         // 1) sayfanın kendi yanıtları; 2) olmazsa HTML'e gömülü bloklar
         var events = ReadEvents(page.Captured) ?? ReadEvents(EmbeddedBlocks(page.Html))
             ?? throw new InvalidOperationException("fiyat geçmişi bulunamadı (propertyHistoryInfo yok)");
-        return (events, page.Html);
+        return (events, page);
+    }
+
+    /// İlan sayfasının yakalanan yanıtları ve gömülü blokları: out\redfin_raw\{ST}\{fips}_{sokak}.json. Ham ayrıntı
+    /// alanlarının (RedfinDetailsReader) nerede durduğunu gerçek sayfalardan doğrulamak için; hata yazma işini durdurmaz.
+    void SaveRaw(County county, HouseCandidate c, PageData page)
+    {
+        try
+        {
+            var dir = Path.Combine(_outDir, "redfin_raw", county.State);
+            Directory.CreateDirectory(dir);
+            var slug = Regex.Replace(c.Street, @"[^A-Za-z0-9]+", "_").Trim('_');
+            var raw = new
+            {
+                url = c.Url,
+                saved = DateTime.Now,
+                responses = page.Urls.Zip(page.Captured, (u, b) => new { url = u, body = b }).ToList(),
+                embedded = EmbeddedBlocks(page.Html).ToList(),
+            };
+            File.WriteAllText(Path.Combine(dir, $"{county.Fips}_{slug}.json"), JsonSerializer.Serialize(raw), new UTF8Encoding(false));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _log($"{c.Street}: ham yanıt kaydedilemedi — {ex.Message}"); }
     }
 
     /// payload.propertyHistoryInfo.events olan ilk gövde. Hiçbirinde yoksa null.
@@ -696,7 +725,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     static void FillFromListingPage(HouseCandidate c, string html)
     {
         if (c.PhotoUrls.Count == 0) c.PhotoUrls = ExtractPhotoUrls(html);
-        if ((c.Lat == null || c.Lng == null) && ExtractLatLng(html) is { } ll) (c.Lat, c.Lng) = ll;
+        if ((c.Lat == null || c.Lng == null) && ExtractLatLng(html) is { } ll) (c.Lat, c.Lng, c.LatLngSource) = (ll.Lat, ll.Lng, "redfin");
     }
 
     static readonly Regex PhotoUrlRx = new(@"https://ssl\.cdn-redfin\.com/photo/[A-Za-z0-9_\-./]+?\.(?:jpg|jpeg|png|webp)", RegexOptions.IgnoreCase);
@@ -762,10 +791,10 @@ public sealed class RedfinListingPicker : IAsyncDisposable
             _navigated = true;
             if (_page.IsClosed) _page = await _ctx.NewPageAsync();
 
-            var pending = new List<Task<string?>>();
+            var pending = new List<(string Url, Task<string?> Body)>();
             void OnResponse(object? sender, IResponse r)
             {
-                if (capture != null && capture(r.Url)) lock (pending) pending.Add(BodyOrNull(r));
+                if (capture != null && capture(r.Url)) lock (pending) pending.Add((r.Url, BodyOrNull(r)));
             }
 
             _page.Response += OnResponse;
@@ -805,10 +834,13 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     const int DataWaitMs = 20_000;
 
     /// O ana kadar gövdesi okunmuş yanıtlar + sayfanın HTML'i.
-    static PageData Snapshot(string html, List<Task<string?>> pending)
+    static PageData Snapshot(string html, List<(string Url, Task<string?> Body)> pending)
     {
         lock (pending)
-            return new PageData(html, pending.Where(t => t.IsCompletedSuccessfully).Select(t => t.Result).OfType<string>().ToList());
+        {
+            var done = pending.Where(p => p.Body.IsCompletedSuccessfully && p.Body.Result != null).ToList();
+            return new PageData(html, done.Select(p => p.Body.Result!).ToList(), done.Select(p => p.Url).ToList());
+        }
     }
 
     static async Task<string?> BodyOrNull(IResponse r)

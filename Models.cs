@@ -98,8 +98,51 @@ public class HouseCandidate
     public List<PriceCut> PriceSteps { get; set; } = new();   // mevcut ilanın fiyat adımları: ilk fiyat + her değişiklik (animasyon)
     public List<string> PhotoUrls { get; set; } = new();      // ilan sayfasındaki fotoğraf adresleri
     public List<string> PhotoPaths { get; set; } = new();     // indirilen referans fotoğraflar, out klasörüne göre göreli
+    public string? LatLngSource { get; set; }                 // "redfin", "census geocoder" ya da "openstreetmap nominatim"
+
+    // Ham ek bilgiler (ek veri katmanı): FredPull yorumlamaz, bulunamayan alan boş kalır
+    public RedfinDetails? Redfin { get; set; }                // ilan sayfasındaki ayrıntılar, sayfada yazdığı gibi
+    public string? FemaZone { get; set; }                     // FEMA NFHL nokta sorgusu: FLD_ZONE
+    public string? FemaZoneSubtype { get; set; }              // ZONE_SUBTY
+    public string? FemaSfha { get; set; }                     // SFHA_TF ("T" / "F")
+    public DateTime? FemaQueriedAt { get; set; }
+    public string? FemaSource { get; set; }                   // sorgulanan servis (FEMA'nın kendisi ya da Esri kopyası) ve veri tarihi
+    public string? FemaNote { get; set; }                     // sorgu başarılı, noktada poligon yok: kaynağın kapsamı
+    public string? FemaError { get; set; }                    // servis hatası
 
     public int TotalCut => (OriginalPrice ?? 0) - (CurrentPrice ?? 0);
+}
+
+/// İlan sayfasından (yakalanan stingray yanıtları ve HTML'e gömülü bloklar) okunan ham ayrıntılar. Değerler Redfin'in
+/// yazdığı gibi metin olarak saklanır; hesap ve yorum yapılmaz. Bulunamayan alan null. Found: alan → bulunduğu yer.
+public class RedfinDetails
+{
+    public DateTime ReadAt { get; set; }
+    public string? Description { get; set; }                  // "About this home"
+    public string? PropertyTax { get; set; }                  // yıllık emlak vergisi (kamu kayıtları)
+    public string? PropertyTaxYear { get; set; }
+    public string? Hoa { get; set; }                          // aidat tutarı
+    public string? HoaPeriod { get; set; }
+    public string? FloodZone { get; set; }                    // Redfin'in gösterdiği FEMA bölgesi
+    public string? FloodInsuranceEstimate { get; set; }       // Redfin tahmini sel sigortası aralığı
+    public Dictionary<string, string> ClimateRisk { get; set; } = new();   // flood / fire / heat / wind → Redfin'in puanı
+    public string? AgentName { get; set; }
+    public string? OfficeName { get; set; }
+    public Dictionary<string, string> Found { get; set; } = new();
+}
+
+/// FEMA National Flood Hazard Layer nokta sorgusunun sonucu (FLD_ZONE, ZONE_SUBTY, SFHA_TF). Source: kullanılan servis.
+/// Evin kaydına HouseCandidate.Fema* alanları olarak yazılır.
+public class FemaFlood
+{
+    public string? Zone { get; set; }
+    public string? Subtype { get; set; }
+    public string? Sfha { get; set; }
+    public string Source { get; set; } = "";
+    public DateTime QueriedAt { get; set; }
+    public string? Error { get; set; }
+    /// Sorgu başarılı ama noktada poligon yoksa kaynağın kapsamı (Zone boş kalır).
+    public string? Note { get; set; }
 }
 
 /// Bir ilçe için seçilen ev + adaylar; out\listings_XX.json içinde ilçe başına bir kayıt.

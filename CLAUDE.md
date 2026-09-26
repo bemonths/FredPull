@@ -41,10 +41,14 @@ ABD ilçelerinin (county) konut piyasasını iki kaynaktan okuyup her ilçe içi
 | `FredPull_TASK_VideoUretimi.md` | 2026-09-25 görevi: Video üretimi sekmesi (tarihsel kayıt). |
 | `ChartList.cs` | Grafik listesi (`out\grafikler_{ST}.csv`): okuma/yazma, tariflerin Snapshot'tan hesaplanması, stüdyo grafik sahneleri, değer dökümü. |
 | `FredPull_TASK_GrafikListesi.md` | 2026-09-26 görevi: grafik listesi ve grafik sahnelerinin otomatik doldurulması (tarihsel kayıt). |
+| `FredPull_TASK_DuzeltmeYuvarlamaUyari.md` | 2026-09-26 düzeltmesi: yuvarlama (iki ondalık, yarım yukarı) ve sıçrama uyarısı (tarihsel kayıt). |
+| `ExtraData.cs` | Ham ek veri katmanı ("Ek verileri çek"): Census ACS, FRED inşaat izinleri, CMS hastaneleri + Census Geocoder, OurAirports, FEMA sel bölgesi, manifest, ev detayı dosyası. |
+| `RedfinDetailsReader.cs` | İlan sayfasının yakalanan yanıtlarından ham ayrıntılar (açıklama, vergi, aidat, Redfin'in sel bölgesi/sigorta tahmini, iklim riski, emlakçı). |
+| `FredPull_TASK_HamEkVeri.md` | 2026-09-27 görevi: ham ek veri katmanı (tarihsel kayıt). |
 
 ## Arayüz
 Üst çubuk iki satır (bütün sekmelerde görünür):
-1. Eyalet · ilçe sayısı · FRED API anahtarı · **Verileri çek** · İptal · Son sonucu yükle · out klasörü
+1. Eyalet · ilçe sayısı · FRED API anahtarı · **Verileri çek** · İptal · Son sonucu yükle · out klasörü · **Ek verileri çek** · Census anahtarı (gizli yazı, `fredpull_settings.json` → `CensusKey`)
 2. Redfin verisini indir · Redfin tarihi · **Redfin'i mevcut sonuca ekle** · Ev kartı: [Müstakil ev / Daire] · Bant (bin $) · ☐ Açık Chrome'a bağlan (9222) · **Ev kartlarını topla** · **Ev detayları**
 
 Altında iki sekme (`_mainTabs`):
@@ -81,6 +85,8 @@ Seçili satırlar için (seçim yoksa hepsini sorar) sırayla çalışır; tek g
 7. Engel ("Access Denied", HTTP 403/429, CloudFront "Request blocked"; sayfa, autocomplete ya da ilan sayfası): 60 sn bekle, bir kez daha dene; ikinci engelde `BlockedException` → **ilçe atlanır**, URL `log_listings.txt`'e yazılır. Tarayıcı penceresi kapatılırsa (ya da bağlı Chrome kapanırsa) toplama durur.
 
 Sonuç dosyaları çalıştırmalar arasında **ilçe bazında birleşir** (Miami-Dade'i ayrıca Daire modunda çalıştırmak diğerlerini silmez). Hata alan çalıştırma, önceki başarılı kartın üstüne yazmaz.
+
+**Ham ayrıntılar (ek veri görevi, 2026-09-27):** aynı ilan sayfası ziyaretinde yakalanan bütün `/stingray/` yanıtları ve HTML'e gömülü bloklar `RedfinDetailsReader.Read`'e verilir → adayın `Redfin` alanı (`RedfinDetails`: `Description`, `PropertyTax`/`PropertyTaxYear`, `Hoa`/`HoaPeriod`, `FloodZone`, `FloodInsuranceEstimate` (Redfin tahmini), `ClimateRisk` (flood/fire/heat/wind), `AgentName`, `OfficeName`, `Found` = alan → JSON yolu). Değerler sayfada yazdığı gibi metin; bulunamayan alan boş, ayrıştırma hatası boş döner (toplama durmaz). Okuyucu JSON'u anahtar adlarıyla dolaşır, "similar/nearby/comparable/recentlysold/comps/otherhomes/neighborhood" dallarını atlar, URL'deki `propertyId`'yi içeren yanıtları öne alır; yedek olarak sayfa metninden "FEMA Zone X", "$a – $b" sigorta aralığı ve "HOA Dues" okunur. **Alan adları henüz gerçek bir sayfayla doğrulanmadı** (Claude Redfin'e istek atmaz): her ilan sayfasının ham yanıtları `out\redfin_raw\{ST}\{fips}_{sokak}.json`'a (`url`, `saved`, `responses[{url, body}]`, `embedded[]`) yazılır; ilk canlı toplamadan sonra bu dosyalara bakıp anahtar kümeleri düzeltilir. Toplama sonunda her kart için `ExtraData.CompleteHousesAsync` (eksik koordinat + FEMA) çalışır ve `out\ev_detaylari_{ST}.md` yazılır.
 
 ## Ev detay formu (`HouseDetailForm`)
 Tabloda satıra çift tık ya da "Ev detayları" → o ilçenin kartı (modal değil; farklı ilçeler için birden fazla, aynı ilçe ikinci kez açılmaz, öne gelir). Kart her seferinde ana formun `Cards` sözlüğünden okunur; ana formda eyalet değişirse form "kart bulunamadı" der.
@@ -158,6 +164,26 @@ Google Flow'a yapıştırılan 10 sn'lik harita intro'su prompt'u.
 - Şablonlar ve eyalet dosyası sekme her açıldığında ve iki `FileSystemWatcher` (PromptData\ ve exe klasöründe yalnız kullanıcı şablonu) değişiklik bildirdiğinde (300 ms gecikmeli) yeniden okunur.
 - Varsayılan şablonu ya da eyalet verisini kalıcı değiştirmek için depodaki `PromptData\` düzenlenip derlenir (`PreserveNewest`).
 
+## Ham ek veri (`ExtraData`, "Ek verileri çek")
+**İlke: FredPull ham veri indirir; hesap, karşılaştırma ve yorum yapmaz.** Resmî kaynaktan gelen değer olduğu gibi, kaynağı ve tarihiyle yazılır. Toplama, oran, uzaklık, en yakın hastane/havalimanı eşleştirmesi, sıralama ve yorum yapay zeka projelerinde yapılır. Bu katmana hesap ekleme; gerekiyorsa ham sütunu ekle. Görev: `FredPull_TASK_HamEkVeri.md`.
+
+Düğme seçili eyalet için adımları sırayla çalıştırır (önce ne yapılacağını sorar); bir adım hata verirse diğerleri yine çalışır. Sonunda ✓/✗ özet penceresi; günlük `out\ek_{ST}\log_ek.txt`; ana "İptal" durdurur. Bütün CSV'ler UTF-8 **BOM'suz**, virgül/tırnak/satır sonu içeren alan çift tırnaklı, ilk satır başlık.
+
+| Dosya (`out\ek_{ST}\`) | Kaynak | Sütunlar / içerik |
+|---|---|---|
+| `acs_{ST}.csv` | Census Data API, ACS 5 yıllık; geçen yıldan geriye 4 yıl denenir, ilk bulunan kullanılır | `geo_type` (`us` / `state` / `county`), `fips` (`US` / 2 hane / 5 hane), `name`, `B25103_001E` (ödenen medyan emlak vergisi), `B25077_001E` (medyan ev değeri), `B01001_001E` (toplam nüfus), `B01001_020E`…`025E` (erkek 65+), `B01001_044E`…`049E` (kadın 65+), `acs_year`. Sıra: ABD, eyalet, county'ler FIPS'e göre. Census'un özel negatif kodları olduğu gibi. |
+| `izinler_{ST}.csv` | FRED `BPPRIV0{FIPS}` (yıllık özel konut izni) | `fips,name,year,units`. Serisi olmayan county atlanır, günlüğe ve manifest uyarısına yazılır. Florida'da seriler 1990'dan başlıyor. |
+| `hastaneler_{ST}.csv` | CMS Provider Data API, Hospital General Information `xubh-q36u` (`datastore/query/xubh-q36u/0`, `conditions[0][property]=state`, sayfa 1500; API 5000'i reddediyor). **Sabit CSV bağlantısı kullanılmaz** (CMS dosya adını her sürümde değiştiriyor) | Seçili eyalet + `states_intro.json`'daki komşu eyaletler (Florida → FL, GA, AL). CMS'in bütün sütunları geldiği sırayla, sonra `lat,lng,geocode_match`. Koordinat Census Geocoder toplu adres servisinden (`addressbatch`, `Public_AR_Current`, 1000'lik parçalar; servis dosya başına 10.000'e izin veriyor). `geocode_match` servisin yazdığı gibi: `Match/Exact`, `Match/Non_Exact`, `No_Match`, `Tie`; eşleşmeyende koordinat boş. Veri kümesinin `modified`/`released`/`issued` tarihleri metastore'dan manifest'e. |
+| `havalimanlari.csv` | OurAirports `airports.csv` (GitHub, her gün güncellenir) | `ident,iata_code,name,municipality,iso_region,type,latitude_deg,longitude_deg`; süzgeç `iso_country=US`, `iso_region=US-{ST}`, `type` large/medium, `scheduled_service=yes` (Florida 24). Görev "ABD'deki" diyor ama test Florida için 24 bekliyor; bu yüzden eyalete süzülür. |
+| `manifest.json` | — | `{state, written_at, principle, files: [{file, source, fetched_at, period, rows, warnings, error, details}]}` (BOM'suz, snake_case). Bu çalıştırmada hata veren adımın dosyası önceki çekilişten duruyorsa eski kaydı korunur, uyarısına son denemenin hatası eklenir; bu çalıştırmada olmayan eski kayıtlar da kalır. |
+
+**Ev kartları** (yüklü `listings_{ST}.json`, düğmede ve her "Ev kartlarını topla" sonunda; `CompleteHousesAsync`):
+- Koordinatı olmayan her aday: önce Census Geocoder toplu servisi, bulamazsa OpenStreetMap Nominatim (saniyede en çok bir istek; yalnız `place_rank` 30 = bina/adres noktası kabul edilir, sokak ortası değil). `LatLngSource`: `redfin` / `census geocoder` / `openstreetmap nominatim` (eski kartlarda boş = Redfin). Bulunamayan adres uyarıya yazılır, koordinat boş kalır.
+- FEMA sel bölgesi: `hazards.fema.gov/.../NFHL/MapServer` katman listesinden **adıyla** "Flood Hazard Zones" bulunur, nokta sorgusu (`esriGeometryPoint`, `inSR=4326`, `outFields=FLD_ZONE,ZONE_SUBTY,SFHA_TF`). **Bu bilgisayardan FEMA'nın servisine bağlanılamıyor** (TLS el sıkışmasında bağlantı kesiliyor; msc.fema.gov da öyle): 40 sn sonra Esri Living Atlas'taki kopyaya (`USA_Flood_Hazard_Reduced_Set_gdb/FeatureServer/0`, aynı alan adları, veri tarihi `dataLastEditDate`) düşülür ve bu uyarı + kaynak her evin kaydına yazılır. Evin alanları: `FemaZone`, `FemaZoneSubtype`, `FemaSfha`, `FemaQueriedAt`, `FemaSource`, `FemaNote`, `FemaError`. Kopya (Reduced Set) "Area of Minimal Flood Hazard" X poligonlarını içermiyor: noktada poligon yoksa `FemaZone` boş kalır, `FemaNote` bunu söyler (yorum değil, kaynağın kapsamı). Bölgesi boş kalan evler her çalıştırmada yeniden sorgulanır (FEMA'nın servisi açılırsa oradan gelir).
+- `out\ev_detaylari_{ST}.md`: seçili her ev için alan adı: değer satırları (adres, ilan, kart metni, fiyatlar, fiyat geçmişi, koordinat ve kaynağı, FEMA bölümü, Redfin ilan sayfası bölümü + okunan alanların JSON yolları). Yorum cümlesi yok.
+
+**Census anahtarı:** Census Data API artık anahtarsız isteği kabul etmiyor (HTTP 200 ile "Missing Key" HTML'i döner); anahtar yoksa ACS adımı açık bir mesajla ✗ olur, diğer adımlar çalışır. Ücretsiz anahtar https://api.census.gov/data/key_signup.html (kullanıcı kendisi alır), üst çubuktaki "Census anahtarı" kutusuna yazılır.
+
 ## Pano
 Bütün kopyalama düğmeleri (intro prompt'u, ev detay formundaki adres/koordinat/kart) `MainForm.TryCopy` kullanır: `Clipboard.SetDataObject(text, true, 10, 100)`; pano başka bir programda açıksa `ExternalException` yakalanır, program kapanmaz, durum satırına "Pano başka bir program tarafından kullanılıyor, tekrar dene" yazılır.
 
@@ -172,6 +198,9 @@ Bütün kopyalama düğmeleri (intro prompt'u, ev detay formundaki adres/koordin
 - `earthstudio_{ST}.kml` — seçilen evlerin noktaları (Placemark adı "{İlçe} — {Şehir}", açıklamada kart metni ve adres)
 - `grafikler_{ST}.csv` — grafik listesi (senaryodan ya da "Grafik ekle"den); `grafik_degerleri_{ST}.csv` — proje kurulurken ekrana basılan rakamların dökümü
 - `anim\{ST}\{fips}.csv` — `date,price,cut`: ilk satır ilan tarihi/ilk fiyat (cut 0), sonra her fiyat değişikliği (küçük düşüşler ve artışlar dahil; cut = bir önceki fiyattan düşüş, artışta eksi)
+- `ek_{ST}\` — ham ek veriler: `acs_{ST}.csv`, `izinler_{ST}.csv`, `hastaneler_{ST}.csv`, `havalimanlari.csv`, `manifest.json`, `log_ek.txt` (biçimler "Ham ek veri" bölümünde)
+- `ev_detaylari_{ST}.md` — seçili evlerin ham ayrıntıları (FEMA, Redfin ilan sayfası), yorum yok
+- `redfin_raw\{ST}\{fips}_{sokak}.json` — ilan sayfasında yakalanan ham yanıtlar (ayrıştırıcıyı doğrulamak/düzeltmek için)
 
 ## Kod stili
 Mevcut dosyalarla aynı: tek Form, `System.Text.Json`, `InvariantCulture`, aşırı soyutlama yok, Türkçe yorumlar ve arayüz metinleri. Arayüzde "ilçe" denir.
@@ -223,7 +252,13 @@ Doğrulama: görevdeki örnek `grafikler_FL.csv` ve Florida önbelleğiyle (geç
 ### 2026-09-26 — yuvarlama ve sıçrama uyarısı düzeltmesi (FredPull kısmı)
 `DUZELTME_TASK_yuvarlama_uyari.md`'nin FredPull'a ait maddeleri uygulandı (kullanıcı önce "bu depoya ait kısımları" dedi, ardından stüdyo maddelerini de istedi: `round_half_up` yardımcısı, sahnelerdeki bütün ekran yuvarlamaları, `ornek_grafikler.json` ve `question_board` varsayılanında ikinci kartın açıklaması "FEWER HOMES FOR SALE / IN ONE YEAR"; stüdyo `938a5fb`): stüdyoya giden değerler iki ondalık, C# yuvarlamaları yarım yukarı, döküm ay adları İngilizce, oran serilerinde aylık sıçrama kontrolü yerine geçen yılın aynı ayıyla kıyas. Kontrol (Florida, görevdeki grafik listesi): Pasco grafiği ekranda "44 OF 100", "31 OF 100", "35 OF 100" (gönderilen 43,55 / 30,54 / 35,31); uyarı listesinde yalnız Osceola.
 
+### 2026-09-27 — ham ek veri katmanı
+`FredPull_TASK_HamEkVeri.md` uygulandı (ayrıntı "Ham ek veri" bölümünde). Görevden sapmalar: havalimanları eyalete süzülür (testteki 24 için); FEMA'nın servisine erişilemediğinden Esri kopyası yedek; Census anahtarsız isteği reddettiğinden anahtar kutusu var ama ACS için fiilen gerekli; koordinatı Census'un bulamadığı adresler için OpenStreetMap yedeği; FEMA alanlarına `FemaSource`/`FemaNote`/`FemaError` eklendi.
+Doğrulama (geçici test projesi, gerçek servisler, Florida, geçici klasöre): izinler 2.403 satır (1990–2025), **Pasco 2021 = 8.905, Osceola 2021 = 10.003**; hastaneler 469 satır (FL 221, GA 149, AL 99), CMS veri kümesi 2026-07-22 / yayın 2026-08-13, koordinat eşleşmesi 391/469 (313 Exact, 78 Non_Exact, 76 No_Match, 2 Tie); havalimanları **24**; ACS anahtarsız → açık hata mesajı, diğer adımlar çalıştı. `listings_FL.json` kopyasında 55 aday: 36 koordinatsızdan 33'ü Census'tan, 1'i (Highlands, 4515 Starfish Ave) OpenStreetMap'ten, 2'si bulunamadı (seçili değiller); **seçili 11 evin hepsinde koordinat var**; **Pasco 13639 Frances Ave → AE / Coastal Floodplain / T** (Esri kopyası); Collier, Lee, Miami-Dade AE, Highlands A, diğer 6 seçili evde kopyada poligon yok. Manifest birleştirme (başarısız tekrar eski kaydı korur) ve sahte yanıtla ilan sayfası okuyucusu sınandı. Ekran dışı formla üst çubuk kontrol edildi. **Redfin'in sel sigortası tahmini (Pasco evinde 1.737–8.500 $) henüz sınanmadı**: gerçek ilan sayfası gerekiyor.
+
 ## Açık konular
+- **Ham ek veri, 7. madde:** Redfin ilan sayfası alanlarının adları gerçek yanıtla doğrulanmadı. Kullanıcı bir ilçeyi (ör. Pasco) yeniden topladıktan sonra `out\redfin_raw\FL\12101_*.json` ve `ev_detaylari_FL.md`'deki "Okunan alanlar" satırı incelenip `RedfinDetailsReader`'daki anahtar kümeleri düzeltilecek; Pasco evinde sel sigortası "1.737–8.500 $" okunmalı.
+- ACS için kullanıcının Census anahtarı alması gerekiyor (Claude hesap açmaz).
 - Claude ilan toplayıcıyı Redfin'e karşı kendisi çalıştırmaz; canlı çalıştırmaları kullanıcı yapar, Claude `out\log_listings.txt` ve `out\listings_XX.json`'u okuyup değerlendirir. md'deki kabul testi (Bant `200-450`) henüz çalıştırılmadı: Florida → Lee County, "Müstakil ev", Bant `200-450`, "Ev kartlarını topla" (403 sürerse "Açık Chrome'a bağlan (9222)" ile).
 - Log'da "sayfa bütçesi doldu" satırı çıkarsa o bantta eski ilanlar kaçmış olabilir; `MaxListPages` (40) artırılabilir. Büyük ilçelerde (Lee, Miami-Dade, Broward, Palm Beach, Hillsborough...) ilçe başına 2-3 dk sürebilir; kullanıcı beklemeyi kabul ediyor.
 - Seçim kuralı (en çok indirim) uzun süredir ilanda olan, arada çekilip yeniden çıkan evleri öne çıkarıyor; kartta "742 gündür satılık" derken arada ~2 ay ilandan kalkmış olabilir (`previouslyWithdrawn` sütununa bakılmalı). Beklenen: 152 Nicholas Pkwy E, Cape Coral (listed 2026-06-03 / 439.900, indirimler 06-25 → 419.900, 08-04 → 399.900, son satış 2022-01-14 / 500.000). İlan kalkmışsa başka bir ev çıkması normal; cutCount ≥ 2 ve days ≥ 90 olmalı.

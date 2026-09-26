@@ -53,6 +53,16 @@ Google Flow'a yapıştırılacak 10 saniyelik harita intro'su prompt'u, seçili 
 - "Şablonu aç" şablonun sana ait kopyasını (exe yanında user_intro_prompt_template.txt; yoksa varsayılandan oluşturulur) düzenleyicide açar; kaydedince önizleme kendiliğinden yenilenir ve program kapanıp açılsa da kalır. "Şablonu varsayılana döndür" bu kopyayı siler.
 - Doldurulmamış bir [YER TUTUCU] kalırsa ya da eyalet dosyada yoksa (Alaska, Hawaii, DC) kırmızı uyarı çıkar; kutuları elle doldur.
 
+## Ek veriler (ham)
+"Ek verileri çek" seçili eyalet için resmî kaynaklardan ham tabloları out\ek_XX\ klasörüne indirir. FredPull hesap ve yorum yapmaz; karşılaştırma ve eşleştirme yapay zeka projelerinde yapılır.
+- acs_XX.csv — Census ACS 5 yıllık: ödenen medyan emlak vergisi, medyan ev değeri, nüfus, 65 yaş üstü gruplar (county'ler + eyalet + ABD). Census anahtarı gerekir (ücretsiz: https://api.census.gov/data/key_signup.html); üst çubuktaki "Census anahtarı" kutusuna yaz.
+- izinler_XX.csv — FRED yıllık konut izinleri (county başına).
+- hastaneler_XX.csv — CMS hastane listesi (eyalet + komşu eyaletler) ve adreslerin koordinatları (Census Geocoder).
+- havalimanlari.csv — eyaletteki tarifeli seferli büyük/orta havalimanları (OurAirports).
+- manifest.json — her dosyanın kaynağı, çekiliş zamanı, veri dönemi, satır sayısı ve uyarıları.
+- Ev kartı varsa: eksik koordinatlar (Census Geocoder, bulamazsa OpenStreetMap) ve FEMA sel bölgesi evlere eklenir; out\ev_detaylari_XX.md yazılır. "Ev kartlarını topla" bunları her toplamada kendisi yapar, ayrıca ilan sayfasındaki açıklama, vergi, aidat, Redfin'in sel/iklim riski bilgilerini ham olarak kaydeder.
+- FEMA'nın kendi servisine bağlanılamazsa Esri Living Atlas'taki FEMA kopyası kullanılır ve bu, evin kaydına yazılır.
+
 ## Ev detayları
 Tabloda satıra çift tıkla ya da "Ev detayları": adaylar, fiyat geçmişi ve grafiği, referans fotoğraflar.
 - "Bu evi seç": kart metnine başka bir adayı koyar (listings dosyaları ve ranking güncellenir).
@@ -73,6 +83,7 @@ Grafik: seçili metrik; ilan süresi, indirim payı, aylık stok, satış/liste 
 - listings_XX.json / listings_XX.csv — ev kartları (seçilen ev + adaylar; csv'de cardText senaryo cümlesi). Yeni çalıştırmalar ilçe bazında birleşir.
 - redfin_regions.json — ilçe → Redfin county adresi önbelleği
 - log_listings.txt — ev kartı günlüğü
+- ek_XX\ — ham ek veriler ve manifest.json; ev_detaylari_XX.md — seçili evlerin ham ayrıntıları; redfin_raw\ — ilan sayfalarının ham yanıtları
 
 ## Sorun giderme
 - Redfin eşleşen ilçe sayısı durum çubuğunda yazar; Redfin küçük ilçeleri yayınlamaz.

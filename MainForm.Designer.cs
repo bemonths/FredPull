@@ -45,6 +45,9 @@ namespace FredPull
             _btnFetch = new Button();
             _btnCancel = new Button();
             _btnLoad = new Button();
+            _btnExtra = new Button();
+            _lblCensusKey = new Label();
+            _txtCensusKey = new TextBox();
             _btnOpenOut = new Button();
             _btnRedfin = new Button();
             _lblRedfin = new Label();
@@ -200,6 +203,9 @@ namespace FredPull
             _top.Controls.Add(_btnCancel);
             _top.Controls.Add(_btnLoad);
             _top.Controls.Add(_btnOpenOut);
+            _top.Controls.Add(_btnExtra);
+            _top.Controls.Add(_lblCensusKey);
+            _top.Controls.Add(_txtCensusKey);
             _top.Controls.Add(_btnRedfin);
             _top.Controls.Add(_lblRedfin);
             _top.Controls.Add(_btnAttachRedfin);
@@ -216,7 +222,7 @@ namespace FredPull
             _top.Padding = new Padding(8, 6, 8, 2);
             _top.Size = new Size(1544, 70);
             _top.TabIndex = 0;
-            _top.SetFlowBreak(_btnOpenOut, true);
+            _top.SetFlowBreak(_txtCensusKey, true);
             //
             // _lblState
             //
@@ -310,6 +316,38 @@ namespace FredPull
             _btnOpenOut.Text = "out klasörü";
             _btnOpenOut.UseVisualStyleBackColor = true;
             _btnOpenOut.Click += BtnOpenOut_Click;
+            //
+            // _btnExtra
+            //
+            _btnExtra.AutoSize = true;
+            _btnExtra.Enabled = false;
+            _btnExtra.Location = new Point(1078, 9);
+            _btnExtra.Margin = new Padding(12, 3, 3, 3);
+            _btnExtra.Name = "_btnExtra";
+            _btnExtra.Size = new Size(104, 25);
+            _btnExtra.TabIndex = 9;
+            _btnExtra.Text = "Ek verileri çek";
+            _btnExtra.UseVisualStyleBackColor = true;
+            _btnExtra.Click += BtnExtra_Click;
+            //
+            // _lblCensusKey
+            //
+            _lblCensusKey.AutoSize = true;
+            _lblCensusKey.Location = new Point(1195, 13);
+            _lblCensusKey.Margin = new Padding(10, 7, 4, 0);
+            _lblCensusKey.Name = "_lblCensusKey";
+            _lblCensusKey.Size = new Size(98, 15);
+            _lblCensusKey.TabIndex = 10;
+            _lblCensusKey.Text = "Census anahtarı:";
+            //
+            // _txtCensusKey
+            //
+            _txtCensusKey.Location = new Point(1300, 9);
+            _txtCensusKey.Name = "_txtCensusKey";
+            _txtCensusKey.PlaceholderText = "isteğe bağlı";
+            _txtCensusKey.Size = new Size(200, 23);
+            _txtCensusKey.TabIndex = 11;
+            _txtCensusKey.UseSystemPasswordChar = true;
             //
             // _btnRedfin
             //
@@ -1563,6 +1601,9 @@ namespace FredPull
         private Label _lblKey;
         private TextBox _txtKey;
         private Button _btnFetch;
+        private Button _btnExtra;
+        private Label _lblCensusKey;
+        private TextBox _txtCensusKey;
         private Button _btnCancel;
         private Button _btnLoad;
         private Button _btnOpenOut;
