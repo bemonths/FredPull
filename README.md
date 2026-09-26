@@ -38,6 +38,14 @@ Her ilçe için "aylardır satılamayan tek bir ev" seçer. Tabloda ilçeleri se
 - "Stüdyo projesi oluştur": giriş haritası + her ilçe için yakınlaşma ve fiyat merdiveni sahneleri olan projeyi stüdyonun projects klasörüne yazar ve stüdyoya doğrulatır. Stüdyo arayüzünde "Proje aç…" listesinde görünür.
 - "Stüdyoda render al": projeyi oluşturur, render'ı başlatır (ilerleme alt çubukta, "İptal" durdurur), bitince çıktı klasörünü açar. "Çıktı klasörünü aç" son render'ın klasörünü sonradan da açar.
 
+### Grafikler (grafik listesi)
+Animasyon grubunun "Grafikler" alt sekmesi. out\grafikler_XX.csv hangi grafiğin videonun neresine gireceğini söyler (senaryo sohbetinden gelir ya da "Grafik ekle" ile burada yazılır); rakamlar elle girilmez, "Stüdyo projesi oluştur" onları yüklü veriden hesaplar.
+- Biçim: `seq,slot,fips,chart,metrics,text,caption`. Grafikler: soru kartı (vaat ekranı), county soru kartı, satış fiyatı yılları, satılık ev (çizgi ya da sütun), fiyat kıran pay karşılaştırması, satış/liste halkası, aylık stok termometresi ve sıralaması, satılık ev ızgarası. Tanımlar CLAUDE.md'de.
+- "Grafik ekle": county + grafik seç (county soru kartında üç ölçü, soru kartında simge/değer/açıklama), "Ekle". "Seçili satırı sil" satırı dosyadan çıkarır. "Grafik dosyası seç…" başka yerdeki listeyi out\ klasörüne kopyalar.
+- Proje sırası: eyalet haritası → vaat ekranı → her county: yakınlaşma, soru kartı, grafikleri, fiyat merdiveni → aradaki grafikler 5. county'den sonra → kapanış grafikleri.
+- Ekrana basılan her rakam out\grafik_degerleri_XX.csv'ye yazılır (makaledeki rakamlarla karşılaştırmak için). Veride olağan dışı sıçrama varsa proje özetinde uyarı çıkar.
+- "Şeffaf arka plan (MOV)" işaretliyse stüdyo videoları şeffaf .mov olarak üretir.
+
 ### Intro prompt'u — Flow
 Google Flow'a yapıştırılacak 10 saniyelik harita intro'su prompt'u, seçili eyalete göre hazır gelir.
 - "Komşular" ve "Pin şehri" PromptData\states_intro.json'dan dolar; değiştirirsen o eyalet için hatırlanır (exe yanında intro_overrides.json). "Varsayılana dön" eski hâline getirir.

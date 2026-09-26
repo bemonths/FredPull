@@ -67,6 +67,43 @@ namespace FredPull
             _videoLayout = new TableLayoutPanel();
             _grpAnim = new GroupBox();
             _animLayout = new TableLayoutPanel();
+            _animTabs = new TabControl();
+            _tabAnimTexts = new TabPage();
+            _tabAnimCharts = new TabPage();
+            _textsLayout = new TableLayoutPanel();
+            _chartsLayout = new TableLayoutPanel();
+            _chartsRow = new FlowLayoutPanel();
+            _lblCharts = new Label();
+            _btnChartsPick = new Button();
+            _chartAddRow = new FlowLayoutPanel();
+            _lblChartCounty = new Label();
+            _cbChartCounty = new ComboBox();
+            _lblChartRecipe = new Label();
+            _cbChartRecipe = new ComboBox();
+            _btnChartAdd = new Button();
+            _chartMetricsRow = new FlowLayoutPanel();
+            _lblQuiz = new Label();
+            _cbQuiz1 = new ComboBox();
+            _cbQuiz2 = new ComboBox();
+            _cbQuiz3 = new ComboBox();
+            _chartCardRow = new FlowLayoutPanel();
+            _lblCardIcon = new Label();
+            _cbCardIcon = new ComboBox();
+            _lblCardValue = new Label();
+            _txtCardValue = new TextBox();
+            _lblCardCaption = new Label();
+            _txtCardCaption = new TextBox();
+            _gridCharts = new DataGridView();
+            _gSeq = new DataGridViewTextBoxColumn();
+            _gSlot = new DataGridViewTextBoxColumn();
+            _gCounty = new DataGridViewTextBoxColumn();
+            _gChart = new DataGridViewTextBoxColumn();
+            _gMetrics = new DataGridViewTextBoxColumn();
+            _gText = new DataGridViewTextBoxColumn();
+            _gCaption = new DataGridViewTextBoxColumn();
+            _chartBottomRow = new FlowLayoutPanel();
+            _btnChartDelete = new Button();
+            _chkTransparent = new CheckBox();
             _animStudioRow = new FlowLayoutPanel();
             _animTextsRow = new FlowLayoutPanel();
             _lblTexts = new Label();
@@ -130,6 +167,17 @@ namespace FredPull
             _videoLayout.SuspendLayout();
             _grpAnim.SuspendLayout();
             _animLayout.SuspendLayout();
+            _animTabs.SuspendLayout();
+            _tabAnimTexts.SuspendLayout();
+            _tabAnimCharts.SuspendLayout();
+            _textsLayout.SuspendLayout();
+            _chartsLayout.SuspendLayout();
+            _chartsRow.SuspendLayout();
+            _chartAddRow.SuspendLayout();
+            _chartMetricsRow.SuspendLayout();
+            _chartCardRow.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)_gridCharts).BeginInit();
+            _chartBottomRow.SuspendLayout();
             _animStudioRow.SuspendLayout();
             _animTextsRow.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)_gridTexts).BeginInit();
@@ -717,19 +765,400 @@ namespace FredPull
             _animLayout.ColumnCount = 1;
             _animLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             _animLayout.Controls.Add(_animStudioRow, 0, 0);
-            _animLayout.Controls.Add(_animTextsRow, 0, 1);
-            _animLayout.Controls.Add(_gridTexts, 0, 2);
-            _animLayout.Controls.Add(_animButtons, 0, 3);
+            _animLayout.Controls.Add(_animTabs, 0, 1);
+            _animLayout.Controls.Add(_animButtons, 0, 2);
             _animLayout.Dock = DockStyle.Fill;
             _animLayout.Location = new Point(8, 24);
             _animLayout.Name = "_animLayout";
-            _animLayout.RowCount = 4;
-            _animLayout.RowStyles.Add(new RowStyle());
+            _animLayout.RowCount = 3;
             _animLayout.RowStyles.Add(new RowStyle());
             _animLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             _animLayout.RowStyles.Add(new RowStyle());
             _animLayout.Size = new Size(663, 689);
             _animLayout.TabIndex = 0;
+            //
+            // _animTabs
+            //
+            _animTabs.Controls.Add(_tabAnimTexts);
+            _animTabs.Controls.Add(_tabAnimCharts);
+            _animTabs.Dock = DockStyle.Fill;
+            _animTabs.Location = new Point(3, 40);
+            _animTabs.Name = "_animTabs";
+            _animTabs.SelectedIndex = 0;
+            _animTabs.Size = new Size(657, 609);
+            _animTabs.TabIndex = 1;
+            //
+            // _tabAnimTexts
+            //
+            _tabAnimTexts.Controls.Add(_textsLayout);
+            _tabAnimTexts.Location = new Point(4, 24);
+            _tabAnimTexts.Name = "_tabAnimTexts";
+            _tabAnimTexts.Padding = new Padding(3);
+            _tabAnimTexts.Size = new Size(649, 581);
+            _tabAnimTexts.TabIndex = 0;
+            _tabAnimTexts.Text = "Metinler";
+            _tabAnimTexts.UseVisualStyleBackColor = true;
+            //
+            // _textsLayout
+            //
+            _textsLayout.ColumnCount = 1;
+            _textsLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            _textsLayout.Controls.Add(_animTextsRow, 0, 0);
+            _textsLayout.Controls.Add(_gridTexts, 0, 1);
+            _textsLayout.Dock = DockStyle.Fill;
+            _textsLayout.Location = new Point(3, 3);
+            _textsLayout.Name = "_textsLayout";
+            _textsLayout.RowCount = 2;
+            _textsLayout.RowStyles.Add(new RowStyle());
+            _textsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            _textsLayout.Size = new Size(643, 575);
+            _textsLayout.TabIndex = 0;
+            //
+            // _tabAnimCharts
+            //
+            _tabAnimCharts.Controls.Add(_chartsLayout);
+            _tabAnimCharts.Location = new Point(4, 24);
+            _tabAnimCharts.Name = "_tabAnimCharts";
+            _tabAnimCharts.Padding = new Padding(3);
+            _tabAnimCharts.Size = new Size(649, 581);
+            _tabAnimCharts.TabIndex = 1;
+            _tabAnimCharts.Text = "Grafikler";
+            _tabAnimCharts.UseVisualStyleBackColor = true;
+            //
+            // _chartsLayout
+            //
+            _chartsLayout.ColumnCount = 1;
+            _chartsLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            _chartsLayout.Controls.Add(_chartsRow, 0, 0);
+            _chartsLayout.Controls.Add(_chartAddRow, 0, 1);
+            _chartsLayout.Controls.Add(_chartMetricsRow, 0, 2);
+            _chartsLayout.Controls.Add(_chartCardRow, 0, 3);
+            _chartsLayout.Controls.Add(_gridCharts, 0, 4);
+            _chartsLayout.Controls.Add(_chartBottomRow, 0, 5);
+            _chartsLayout.Dock = DockStyle.Fill;
+            _chartsLayout.Location = new Point(3, 3);
+            _chartsLayout.Name = "_chartsLayout";
+            _chartsLayout.RowCount = 6;
+            _chartsLayout.RowStyles.Add(new RowStyle());
+            _chartsLayout.RowStyles.Add(new RowStyle());
+            _chartsLayout.RowStyles.Add(new RowStyle());
+            _chartsLayout.RowStyles.Add(new RowStyle());
+            _chartsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            _chartsLayout.RowStyles.Add(new RowStyle());
+            _chartsLayout.Size = new Size(643, 575);
+            _chartsLayout.TabIndex = 0;
+            //
+            // _chartsRow
+            //
+            _chartsRow.AutoSize = true;
+            _chartsRow.Controls.Add(_lblCharts);
+            _chartsRow.Controls.Add(_btnChartsPick);
+            _chartsRow.Dock = DockStyle.Fill;
+            _chartsRow.Location = new Point(3, 3);
+            _chartsRow.Name = "_chartsRow";
+            _chartsRow.Size = new Size(637, 31);
+            _chartsRow.TabIndex = 0;
+            _chartsRow.WrapContents = false;
+            //
+            // _lblCharts
+            //
+            _lblCharts.AutoSize = true;
+            _lblCharts.Location = new Point(3, 8);
+            _lblCharts.Margin = new Padding(3, 8, 10, 0);
+            _lblCharts.Name = "_lblCharts";
+            _lblCharts.Size = new Size(106, 15);
+            _lblCharts.TabIndex = 0;
+            _lblCharts.Text = "Grafik listesi yok";
+            //
+            // _btnChartsPick
+            //
+            _btnChartsPick.AutoSize = true;
+            _btnChartsPick.Location = new Point(122, 3);
+            _btnChartsPick.Name = "_btnChartsPick";
+            _btnChartsPick.Size = new Size(130, 25);
+            _btnChartsPick.TabIndex = 1;
+            _btnChartsPick.Text = "Grafik dosyası seç…";
+            _btnChartsPick.UseVisualStyleBackColor = true;
+            _btnChartsPick.Click += BtnChartsPick_Click;
+            //
+            // _chartAddRow
+            //
+            _chartAddRow.AutoSize = true;
+            _chartAddRow.Controls.Add(_lblChartCounty);
+            _chartAddRow.Controls.Add(_cbChartCounty);
+            _chartAddRow.Controls.Add(_lblChartRecipe);
+            _chartAddRow.Controls.Add(_cbChartRecipe);
+            _chartAddRow.Controls.Add(_btnChartAdd);
+            _chartAddRow.Dock = DockStyle.Fill;
+            _chartAddRow.Location = new Point(3, 40);
+            _chartAddRow.Name = "_chartAddRow";
+            _chartAddRow.Size = new Size(637, 29);
+            _chartAddRow.TabIndex = 1;
+            _chartAddRow.WrapContents = false;
+            //
+            // _lblChartCounty
+            //
+            _lblChartCounty.AutoSize = true;
+            _lblChartCounty.Location = new Point(3, 7);
+            _lblChartCounty.Margin = new Padding(3, 7, 3, 0);
+            _lblChartCounty.Name = "_lblChartCounty";
+            _lblChartCounty.Size = new Size(47, 15);
+            _lblChartCounty.TabIndex = 0;
+            _lblChartCounty.Text = "County:";
+            //
+            // _cbChartCounty
+            //
+            _cbChartCounty.DropDownStyle = ComboBoxStyle.DropDownList;
+            _cbChartCounty.Location = new Point(56, 3);
+            _cbChartCounty.MaxDropDownItems = 20;
+            _cbChartCounty.Name = "_cbChartCounty";
+            _cbChartCounty.Size = new Size(160, 23);
+            _cbChartCounty.TabIndex = 1;
+            //
+            // _lblChartRecipe
+            //
+            _lblChartRecipe.AutoSize = true;
+            _lblChartRecipe.Location = new Point(229, 7);
+            _lblChartRecipe.Margin = new Padding(10, 7, 3, 0);
+            _lblChartRecipe.Name = "_lblChartRecipe";
+            _lblChartRecipe.Size = new Size(43, 15);
+            _lblChartRecipe.TabIndex = 2;
+            _lblChartRecipe.Text = "Grafik:";
+            //
+            // _cbChartRecipe
+            //
+            _cbChartRecipe.DropDownStyle = ComboBoxStyle.DropDownList;
+            _cbChartRecipe.DropDownWidth = 300;
+            _cbChartRecipe.Location = new Point(278, 3);
+            _cbChartRecipe.MaxDropDownItems = 12;
+            _cbChartRecipe.Name = "_cbChartRecipe";
+            _cbChartRecipe.Size = new Size(250, 23);
+            _cbChartRecipe.TabIndex = 3;
+            _cbChartRecipe.SelectedIndexChanged += CbChartRecipe_SelectedIndexChanged;
+            //
+            // _btnChartAdd
+            //
+            _btnChartAdd.AutoSize = true;
+            _btnChartAdd.Location = new Point(534, 2);
+            _btnChartAdd.Margin = new Padding(3, 2, 3, 2);
+            _btnChartAdd.Name = "_btnChartAdd";
+            _btnChartAdd.Size = new Size(75, 25);
+            _btnChartAdd.TabIndex = 4;
+            _btnChartAdd.Text = "Ekle";
+            _btnChartAdd.UseVisualStyleBackColor = true;
+            _btnChartAdd.Click += BtnChartAdd_Click;
+            //
+            // _chartMetricsRow
+            //
+            _chartMetricsRow.AutoSize = true;
+            _chartMetricsRow.Controls.Add(_lblQuiz);
+            _chartMetricsRow.Controls.Add(_cbQuiz1);
+            _chartMetricsRow.Controls.Add(_cbQuiz2);
+            _chartMetricsRow.Controls.Add(_cbQuiz3);
+            _chartMetricsRow.Dock = DockStyle.Fill;
+            _chartMetricsRow.Location = new Point(3, 75);
+            _chartMetricsRow.Name = "_chartMetricsRow";
+            _chartMetricsRow.Size = new Size(637, 29);
+            _chartMetricsRow.TabIndex = 2;
+            _chartMetricsRow.Visible = false;
+            _chartMetricsRow.WrapContents = false;
+            //
+            // _lblQuiz
+            //
+            _lblQuiz.AutoSize = true;
+            _lblQuiz.Location = new Point(3, 7);
+            _lblQuiz.Margin = new Padding(3, 7, 3, 0);
+            _lblQuiz.Name = "_lblQuiz";
+            _lblQuiz.Size = new Size(50, 15);
+            _lblQuiz.TabIndex = 0;
+            _lblQuiz.Text = "Ölçüler:";
+            //
+            // _cbQuiz1
+            //
+            _cbQuiz1.DropDownStyle = ComboBoxStyle.DropDownList;
+            _cbQuiz1.DropDownWidth = 200;
+            _cbQuiz1.Location = new Point(59, 3);
+            _cbQuiz1.Name = "_cbQuiz1";
+            _cbQuiz1.Size = new Size(170, 23);
+            _cbQuiz1.TabIndex = 1;
+            //
+            // _cbQuiz2
+            //
+            _cbQuiz2.DropDownStyle = ComboBoxStyle.DropDownList;
+            _cbQuiz2.DropDownWidth = 200;
+            _cbQuiz2.Location = new Point(235, 3);
+            _cbQuiz2.Name = "_cbQuiz2";
+            _cbQuiz2.Size = new Size(170, 23);
+            _cbQuiz2.TabIndex = 2;
+            //
+            // _cbQuiz3
+            //
+            _cbQuiz3.DropDownStyle = ComboBoxStyle.DropDownList;
+            _cbQuiz3.DropDownWidth = 200;
+            _cbQuiz3.Location = new Point(411, 3);
+            _cbQuiz3.Name = "_cbQuiz3";
+            _cbQuiz3.Size = new Size(170, 23);
+            _cbQuiz3.TabIndex = 3;
+            //
+            // _chartCardRow
+            //
+            _chartCardRow.AutoSize = true;
+            _chartCardRow.Controls.Add(_lblCardIcon);
+            _chartCardRow.Controls.Add(_cbCardIcon);
+            _chartCardRow.Controls.Add(_lblCardValue);
+            _chartCardRow.Controls.Add(_txtCardValue);
+            _chartCardRow.Controls.Add(_lblCardCaption);
+            _chartCardRow.Controls.Add(_txtCardCaption);
+            _chartCardRow.Dock = DockStyle.Fill;
+            _chartCardRow.Location = new Point(3, 110);
+            _chartCardRow.Name = "_chartCardRow";
+            _chartCardRow.Size = new Size(637, 29);
+            _chartCardRow.TabIndex = 3;
+            _chartCardRow.Visible = false;
+            _chartCardRow.WrapContents = false;
+            //
+            // _lblCardIcon
+            //
+            _lblCardIcon.AutoSize = true;
+            _lblCardIcon.Location = new Point(3, 7);
+            _lblCardIcon.Margin = new Padding(3, 7, 3, 0);
+            _lblCardIcon.Name = "_lblCardIcon";
+            _lblCardIcon.Size = new Size(42, 15);
+            _lblCardIcon.TabIndex = 0;
+            _lblCardIcon.Text = "Simge:";
+            //
+            // _cbCardIcon
+            //
+            _cbCardIcon.DropDownStyle = ComboBoxStyle.DropDownList;
+            _cbCardIcon.Location = new Point(51, 3);
+            _cbCardIcon.Name = "_cbCardIcon";
+            _cbCardIcon.Size = new Size(90, 23);
+            _cbCardIcon.TabIndex = 1;
+            //
+            // _lblCardValue
+            //
+            _lblCardValue.AutoSize = true;
+            _lblCardValue.Location = new Point(154, 7);
+            _lblCardValue.Margin = new Padding(10, 7, 3, 0);
+            _lblCardValue.Name = "_lblCardValue";
+            _lblCardValue.Size = new Size(39, 15);
+            _lblCardValue.TabIndex = 2;
+            _lblCardValue.Text = "Değer:";
+            //
+            // _txtCardValue
+            //
+            _txtCardValue.Location = new Point(199, 3);
+            _txtCardValue.Name = "_txtCardValue";
+            _txtCardValue.PlaceholderText = "$580K -> ?";
+            _txtCardValue.Size = new Size(110, 23);
+            _txtCardValue.TabIndex = 3;
+            //
+            // _lblCardCaption
+            //
+            _lblCardCaption.AutoSize = true;
+            _lblCardCaption.Location = new Point(322, 7);
+            _lblCardCaption.Margin = new Padding(10, 7, 3, 0);
+            _lblCardCaption.Name = "_lblCardCaption";
+            _lblCardCaption.Size = new Size(58, 15);
+            _lblCardCaption.TabIndex = 4;
+            _lblCardCaption.Text = "Açıklama:";
+            //
+            // _txtCardCaption
+            //
+            _txtCardCaption.Location = new Point(386, 3);
+            _txtCardCaption.Name = "_txtCardCaption";
+            _txtCardCaption.PlaceholderText = "ONE HOUSE IN / FORT MYERS";
+            _txtCardCaption.Size = new Size(230, 23);
+            _txtCardCaption.TabIndex = 5;
+            //
+            // _gridCharts
+            //
+            _gridCharts.AllowUserToAddRows = false;
+            _gridCharts.AllowUserToDeleteRows = false;
+            _gridCharts.AllowUserToResizeRows = false;
+            _gridCharts.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            _gridCharts.BackgroundColor = SystemColors.Window;
+            _gridCharts.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            _gridCharts.Columns.AddRange(new DataGridViewColumn[] { _gSeq, _gSlot, _gCounty, _gChart, _gMetrics, _gText, _gCaption });
+            _gridCharts.Dock = DockStyle.Fill;
+            _gridCharts.Location = new Point(3, 145);
+            _gridCharts.MultiSelect = false;
+            _gridCharts.Name = "_gridCharts";
+            _gridCharts.ReadOnly = true;
+            _gridCharts.RowHeadersVisible = false;
+            _gridCharts.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            _gridCharts.Size = new Size(637, 390);
+            _gridCharts.TabIndex = 4;
+            //
+            // _gSeq
+            //
+            _gSeq.FillWeight = 8F;
+            _gSeq.HeaderText = "Sıra";
+            _gSeq.Name = "_gSeq";
+            _gSeq.ReadOnly = true;
+            //
+            // _gSlot
+            //
+            _gSlot.FillWeight = 12F;
+            _gSlot.HeaderText = "Yer";
+            _gSlot.Name = "_gSlot";
+            _gSlot.ReadOnly = true;
+            //
+            // _gCounty
+            //
+            _gCounty.FillWeight = 18F;
+            _gCounty.HeaderText = "County";
+            _gCounty.Name = "_gCounty";
+            _gCounty.ReadOnly = true;
+            //
+            // _gChart
+            //
+            _gChart.FillWeight = 22F;
+            _gChart.HeaderText = "Grafik";
+            _gChart.Name = "_gChart";
+            _gChart.ReadOnly = true;
+            //
+            // _gMetrics
+            //
+            _gMetrics.FillWeight = 22F;
+            _gMetrics.HeaderText = "Ölçü / simge";
+            _gMetrics.Name = "_gMetrics";
+            _gMetrics.ReadOnly = true;
+            //
+            // _gText
+            //
+            _gText.FillWeight = 14F;
+            _gText.HeaderText = "Yazı";
+            _gText.Name = "_gText";
+            _gText.ReadOnly = true;
+            //
+            // _gCaption
+            //
+            _gCaption.FillWeight = 20F;
+            _gCaption.HeaderText = "Açıklama";
+            _gCaption.Name = "_gCaption";
+            _gCaption.ReadOnly = true;
+            //
+            // _chartBottomRow
+            //
+            _chartBottomRow.AutoSize = true;
+            _chartBottomRow.Controls.Add(_btnChartDelete);
+            _chartBottomRow.Dock = DockStyle.Fill;
+            _chartBottomRow.Location = new Point(3, 541);
+            _chartBottomRow.Name = "_chartBottomRow";
+            _chartBottomRow.Size = new Size(637, 31);
+            _chartBottomRow.TabIndex = 5;
+            //
+            // _btnChartDelete
+            //
+            _btnChartDelete.AutoSize = true;
+            _btnChartDelete.Location = new Point(3, 3);
+            _btnChartDelete.Name = "_btnChartDelete";
+            _btnChartDelete.Size = new Size(110, 25);
+            _btnChartDelete.TabIndex = 0;
+            _btnChartDelete.Text = "Seçili satırı sil";
+            _btnChartDelete.UseVisualStyleBackColor = true;
+            _btnChartDelete.Click += BtnChartDelete_Click;
             //
             // _animStudioRow
             //
@@ -750,9 +1179,9 @@ namespace FredPull
             _animTextsRow.Controls.Add(_lblTexts);
             _animTextsRow.Controls.Add(_btnTextsPick);
             _animTextsRow.Dock = DockStyle.Fill;
-            _animTextsRow.Location = new Point(3, 40);
+            _animTextsRow.Location = new Point(3, 3);
             _animTextsRow.Name = "_animTextsRow";
-            _animTextsRow.Size = new Size(657, 31);
+            _animTextsRow.Size = new Size(637, 31);
             _animTextsRow.TabIndex = 1;
             _animTextsRow.WrapContents = false;
             //
@@ -787,13 +1216,13 @@ namespace FredPull
             _gridTexts.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             _gridTexts.Columns.AddRange(new DataGridViewColumn[] { _tOrder, _tCounty, _tCities, _tStat });
             _gridTexts.Dock = DockStyle.Fill;
-            _gridTexts.Location = new Point(3, 77);
+            _gridTexts.Location = new Point(3, 40);
             _gridTexts.MultiSelect = false;
             _gridTexts.Name = "_gridTexts";
             _gridTexts.ReadOnly = true;
             _gridTexts.RowHeadersVisible = false;
             _gridTexts.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            _gridTexts.Size = new Size(657, 572);
+            _gridTexts.Size = new Size(637, 532);
             _gridTexts.TabIndex = 2;
             //
             // _tOrder
@@ -830,6 +1259,7 @@ namespace FredPull
             _animButtons.Controls.Add(_btnStudioProject);
             _animButtons.Controls.Add(_btnStudioRender);
             _animButtons.Controls.Add(_btnStudioOpenOut);
+            _animButtons.Controls.Add(_chkTransparent);
             _animButtons.Controls.Add(_lblStudioUnsupported);
             _animButtons.Dock = DockStyle.Fill;
             _animButtons.Location = new Point(3, 655);
@@ -849,6 +1279,18 @@ namespace FredPull
             _btnStudioOpenOut.UseVisualStyleBackColor = true;
             _btnStudioOpenOut.Click += BtnStudioOpenOut_Click;
             //
+            // _chkTransparent
+            //
+            _chkTransparent.AutoSize = true;
+            _chkTransparent.Location = new Point(419, 7);
+            _chkTransparent.Margin = new Padding(12, 7, 3, 3);
+            _chkTransparent.Name = "_chkTransparent";
+            _chkTransparent.Size = new Size(160, 19);
+            _chkTransparent.TabIndex = 3;
+            _chkTransparent.Text = "Şeffaf arka plan (MOV)";
+            _chkTransparent.UseVisualStyleBackColor = true;
+            _chkTransparent.CheckedChanged += ChkTransparent_CheckedChanged;
+            //
             // _lblStudioUnsupported
             //
             _lblStudioUnsupported.AutoSize = true;
@@ -857,7 +1299,7 @@ namespace FredPull
             _lblStudioUnsupported.Margin = new Padding(8, 8, 3, 0);
             _lblStudioUnsupported.Name = "_lblStudioUnsupported";
             _lblStudioUnsupported.Size = new Size(300, 15);
-            _lblStudioUnsupported.TabIndex = 3;
+            _lblStudioUnsupported.TabIndex = 4;
             _lblStudioUnsupported.Text = "Harita Stüdyosu yalnızca ana karadaki 48 eyaleti destekler";
             _lblStudioUnsupported.Visible = false;
             //
@@ -1073,6 +1515,24 @@ namespace FredPull
             _animTextsRow.ResumeLayout(false);
             _animTextsRow.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)_gridTexts).EndInit();
+            _textsLayout.ResumeLayout(false);
+            _textsLayout.PerformLayout();
+            _tabAnimTexts.ResumeLayout(false);
+            _chartsRow.ResumeLayout(false);
+            _chartsRow.PerformLayout();
+            _chartAddRow.ResumeLayout(false);
+            _chartAddRow.PerformLayout();
+            _chartMetricsRow.ResumeLayout(false);
+            _chartMetricsRow.PerformLayout();
+            _chartCardRow.ResumeLayout(false);
+            _chartCardRow.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)_gridCharts).EndInit();
+            _chartBottomRow.ResumeLayout(false);
+            _chartBottomRow.PerformLayout();
+            _chartsLayout.ResumeLayout(false);
+            _chartsLayout.PerformLayout();
+            _tabAnimCharts.ResumeLayout(false);
+            _animTabs.ResumeLayout(false);
             _animButtons.ResumeLayout(false);
             _animButtons.PerformLayout();
             _animLayout.ResumeLayout(false);
@@ -1143,6 +1603,45 @@ namespace FredPull
         private Button _btnStudioRender;
         private Button _btnStudioOpenOut;
         private Label _lblStudioUnsupported;
+        private CheckBox _chkTransparent;
+        private TabControl _animTabs;
+        private TabPage _tabAnimTexts;
+        private TableLayoutPanel _textsLayout;
+
+        // Video üretimi: grafik listesi (out\grafikler_XX.csv)
+        private TabPage _tabAnimCharts;
+        private TableLayoutPanel _chartsLayout;
+        private FlowLayoutPanel _chartsRow;
+        private Label _lblCharts;
+        private Button _btnChartsPick;
+        private FlowLayoutPanel _chartAddRow;
+        private Label _lblChartCounty;
+        private ComboBox _cbChartCounty;
+        private Label _lblChartRecipe;
+        private ComboBox _cbChartRecipe;
+        private Button _btnChartAdd;
+        private FlowLayoutPanel _chartMetricsRow;
+        private Label _lblQuiz;
+        private ComboBox _cbQuiz1;
+        private ComboBox _cbQuiz2;
+        private ComboBox _cbQuiz3;
+        private FlowLayoutPanel _chartCardRow;
+        private Label _lblCardIcon;
+        private ComboBox _cbCardIcon;
+        private Label _lblCardValue;
+        private TextBox _txtCardValue;
+        private Label _lblCardCaption;
+        private TextBox _txtCardCaption;
+        private DataGridView _gridCharts;
+        private DataGridViewTextBoxColumn _gSeq;
+        private DataGridViewTextBoxColumn _gSlot;
+        private DataGridViewTextBoxColumn _gCounty;
+        private DataGridViewTextBoxColumn _gChart;
+        private DataGridViewTextBoxColumn _gMetrics;
+        private DataGridViewTextBoxColumn _gText;
+        private DataGridViewTextBoxColumn _gCaption;
+        private FlowLayoutPanel _chartBottomRow;
+        private Button _btnChartDelete;
 
         // Video üretimi: intro prompt'u (Flow)
         private GroupBox _grpIntro;

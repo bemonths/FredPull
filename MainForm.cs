@@ -46,6 +46,7 @@ public partial class MainForm : Form
         UpdateRedfinLabel();
         LoadSettings();
         SetupVideoTab();
+        SetupChartControls();
 
         _info.Text = Analyzer.Glossary;
     }
@@ -320,6 +321,7 @@ public partial class MainForm : Form
         _btnFetch.Enabled = !busy; _btnLoad.Enabled = !busy; _cbState.Enabled = !busy; _btnRedfin.Enabled = !busy;
         _btnAttachRedfin.Enabled = !busy; _btnHouseCards.Enabled = !busy; _cbHouseMode.Enabled = !busy; _txtBand.Enabled = !busy; _chkCdp.Enabled = !busy;
         _btnStudioBrowse.Enabled = !busy; _btnTextsPick.Enabled = !busy;
+        _btnChartsPick.Enabled = !busy; _btnChartAdd.Enabled = !busy; _btnChartDelete.Enabled = !busy;
         UpdateStudioSupport();
         _btnCancel.Enabled = busy;
         if (!busy) _progress.Value = 0;
@@ -440,6 +442,7 @@ public partial class MainForm : Form
     {
         public string? StudioDir { get; set; }
         public string? LastStudioOut { get; set; }      // son render'ın çıktı klasörü ("Çıktı klasörünü aç")
+        public bool Transparent { get; set; }           // stüdyo projesi şeffaf arka planla (MOV) çıksın
     }
 
     AppSettings _settings = new();
@@ -460,6 +463,14 @@ public partial class MainForm : Form
             SaveSettings();
         }
         _txtStudio.Text = _settings.StudioDir ?? "";
+        _chkTransparent.Checked = _settings.Transparent;
+    }
+
+    void ChkTransparent_CheckedChanged(object? sender, EventArgs e)
+    {
+        if (_settings.Transparent == _chkTransparent.Checked) return;
+        _settings.Transparent = _chkTransparent.Checked;
+        SaveSettings();
     }
 
     void SaveSettings()
@@ -536,9 +547,21 @@ public partial class MainForm : Form
             return null;
         }
 
+        // Grafik listesi (varsa): rakamlar Snapshot'tan hesaplanır, değer dökümü out\grafik_degerleri_{ST}.csv'ye yazılır
+        var charts = new List<ChartList.Row>();
+        var chartsPath = Path.Combine(_outDir, $"grafikler_{state}.csv");
+        if (File.Exists(chartsPath)) charts = ChartList.Read(chartsPath, _snap.Counties.First().County.Fips[..2], warnings);
+        var cx = new ChartList.Context(_snap, texts, StudioExport.LoadColors(studioDir), warnings);
+
         var today = DateOnly.FromDateTime(DateTime.Today);
         var name = StudioExport.UniqueName(studioDir, $"{state}_{today.ToString("yyyyMMdd", Inv)}");
-        var (project, scenes, seconds) = StudioExport.Build(_snap, _cards, texts, name, today, warnings);
+        var (project, scenes, seconds) = StudioExport.Build(_snap, _cards, texts, name, today, warnings, charts, cx, _settings.Transparent);
+        if (charts.Count > 0)
+        {
+            var dumpPath = Path.Combine(_outDir, $"grafik_degerleri_{state}.csv");
+            ChartList.WriteDump(dumpPath, cx.Dumps);
+            LogStudio($"grafik listesi: {charts.Count} satır, {cx.Dumps.Count} değer → {dumpPath}");
+        }
         var path = StudioExport.Write(studioDir, project);
         _status.Text = "Stüdyo doğrulaması çalışıyor...";
         var errors = await StudioExport.ValidateAsync(studioDir, path, ct);
@@ -752,6 +775,7 @@ public partial class MainForm : Form
     void RefreshVideoTab(bool reloadFiles)
     {
         RefreshTexts();
+        RefreshCharts();
         RefreshIntro(reloadFiles);
         UpdateStudioOpenOut();
         UpdateStudioSupport();
@@ -815,11 +839,199 @@ public partial class MainForm : Form
                 File.Copy(dlg.FileName, target, overwrite: true);
             }
             RefreshTexts();
+            RefreshCharts();   // grafik ekleme listesindeki county'ler metin dosyasından gelir
             _status.Text = $"Metin dosyası: {rows.Count} county — {target}";
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
         {
             MessageBox.Show(ex.Message, "Metin dosyası", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    // ---- grafik listesi (out\grafikler_{ST}.csv) ----
+
+    string ChartsPath => Path.Combine(_outDir, $"grafikler_{SelectedAbbr}.csv");
+    string SelectedStateFips => CurrentCounties().FirstOrDefault()?.Fips[..2] ?? "";
+
+    /// Grafik ekleme alanındaki county seçeneği ("Eyalet geneli" için Fips boş).
+    sealed record ChartCounty(string Fips, string Name)
+    {
+        public override string ToString() => Name;
+    }
+
+    sealed record ChartRecipeItem(ChartList.Recipe Recipe)
+    {
+        public override string ToString() => Recipe.Title;
+    }
+
+    sealed record QuizMetricItem(string Id, string Title)
+    {
+        public override string ToString() => Title;
+    }
+
+    /// Açılır listelerin sabit içerikleri (constructor'da; tasarımcıda yalnız kontroller).
+    void SetupChartControls()
+    {
+        foreach (var r in ChartList.Recipes) _cbChartRecipe.Items.Add(new ChartRecipeItem(r));
+        foreach (var cb in new[] { _cbQuiz1, _cbQuiz2, _cbQuiz3 })
+        {
+            cb.Items.Add(new QuizMetricItem("", "— yok —"));
+            foreach (var (id, title) in ChartList.QuizMetrics) cb.Items.Add(new QuizMetricItem(id, title));
+            cb.SelectedIndex = 0;
+        }
+        foreach (var icon in ChartList.Icons) _cbCardIcon.Items.Add(icon);
+        _cbCardIcon.SelectedIndex = 0;
+        _cbChartRecipe.SelectedIndex = 0;
+    }
+
+    void RefreshCharts()
+    {
+        // county listesi: metin dosyasındaki video county'leri (yoksa eyaletin hepsi) + eyalet geneli
+        var keep = (_cbChartCounty.SelectedItem as ChartCounty)?.Fips;
+        _cbChartCounty.Items.Clear();
+        _cbChartCounty.Items.Add(new ChartCounty("", "Eyalet geneli"));
+        var names = CurrentCounties().ToDictionary(c => c.Fips, c => c.Name);
+        List<(string Fips, string Name)> list;
+        try
+        {
+            list = File.Exists(TextsPath)
+                ? StudioExport.ReadTexts(TextsPath, new List<string>()).Select(t => (t.Fips, names.GetValueOrDefault(t.Fips, t.County))).ToList()
+                : new();
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException) { list = new(); }
+        if (list.Count == 0) list = names.OrderBy(kv => kv.Value).Select(kv => (kv.Key, kv.Value)).ToList();
+        foreach (var (fips, name) in list) _cbChartCounty.Items.Add(new ChartCounty(fips, name));
+        _cbChartCounty.SelectedIndex = Math.Max(0, _cbChartCounty.Items.Cast<ChartCounty>().ToList().FindIndex(c => c.Fips == keep));
+        if (keep == null && _cbChartCounty.Items.Count > 1) _cbChartCounty.SelectedIndex = 1;
+
+        _gridCharts.Rows.Clear();
+        _lblCharts.ForeColor = SystemColors.ControlText;
+        if (!File.Exists(ChartsPath))
+        {
+            _lblCharts.Text = "Grafik listesi yok — proje yalnız harita ve fiyat merdiveniyle kurulur";
+            _lblCharts.ForeColor = SystemColors.GrayText;
+            return;
+        }
+        try
+        {
+            var warnings = new List<string>();
+            var rows = ChartList.Read(ChartsPath, SelectedStateFips, warnings);
+            foreach (var r in rows)
+            {
+                var i = _gridCharts.Rows.Add(r.Seq, r.Slot, r.Fips.Length > 0 ? names.GetValueOrDefault(r.Fips, r.Fips) : "Eyalet geneli",
+                    ChartList.Find(r.Chart)?.Title ?? r.Chart, r.Metrics.Replace(";", ", "), r.Text, r.Caption);
+                _gridCharts.Rows[i].Tag = r;
+            }
+            _gridCharts.ClearSelection();
+            _lblCharts.Text = $"Grafik listesi: {rows.Count} satır" + (warnings.Count > 0 ? $", {warnings.Count} uyarı: {warnings[0]}" : "");
+            if (warnings.Count > 0) _lblCharts.ForeColor = Color.FromArgb(190, 30, 30);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _lblCharts.Text = "Grafik listesi okunamadı: " + ex.Message;
+            _lblCharts.ForeColor = Color.FromArgb(190, 30, 30);
+        }
+    }
+
+    void CbChartRecipe_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        var id = (_cbChartRecipe.SelectedItem as ChartRecipeItem)?.Recipe.Id;
+        _chartMetricsRow.Visible = id == "county_quiz";
+        _chartCardRow.Visible = id == "question_card";
+    }
+
+    /// Seçili county ve tariften bir satır kurar ve grafikler_{ST}.csv'nin sonuna ekler (dosya yoksa başlıkla oluşturur).
+    void BtnChartAdd_Click(object? sender, EventArgs e)
+    {
+        if (_cbChartRecipe.SelectedItem is not ChartRecipeItem { Recipe: var recipe } || _cbChartCounty.SelectedItem is not ChartCounty county) return;
+        var chart = recipe.Id;
+        if (!ChartList.StateWide(chart) && county.Fips.Length == 0)
+        {
+            MessageBox.Show($"\"{recipe.Title}\" bir county ister. County listesinden seç.", "Grafik ekle");
+            return;
+        }
+        string metrics = "", text = "", caption = "";
+        if (chart == "county_quiz")
+        {
+            var ids = new[] { _cbQuiz1, _cbQuiz2, _cbQuiz3 }.Select(cb => (cb.SelectedItem as QuizMetricItem)?.Id ?? "").Where(s => s.Length > 0).Distinct().ToList();
+            if (ids.Count == 0) { MessageBox.Show("County soru kartı için en az bir ölçü seç.", "Grafik ekle"); return; }
+            metrics = string.Join(";", ids);
+        }
+        else if (chart == "question_card")
+        {
+            metrics = _cbCardIcon.SelectedItem as string ?? "none";
+            text = _txtCardValue.Text.Trim();
+            caption = _txtCardCaption.Text.Trim();
+            if (text.Length == 0) { MessageBox.Show("Kartın değerini yaz (ör. $580K -> ?).", "Grafik ekle"); return; }
+            if (metrics == "county" && county.Fips.Length == 0) { MessageBox.Show("County simgesi için bir county seç.", "Grafik ekle"); return; }
+            if ((text + caption).Contains('%')) { MessageBox.Show("Ekranda yüzde işareti kullanılmaz; '44 OF 100', '3 IN 10' gibi yaz.", "Grafik ekle"); return; }
+        }
+        try
+        {
+            var existing = File.Exists(ChartsPath) ? ChartList.Read(ChartsPath, SelectedStateFips, new List<string>()) : new();
+            var fips = chart == "months_supply_rank" ? "" : county.Fips;
+            var row = new ChartList.Row(ChartList.NextSeq(existing, chart), ChartList.DefaultSlot(chart), fips, chart, metrics, text, caption);
+            Directory.CreateDirectory(_outDir);
+            ChartList.Append(ChartsPath, row);
+            RefreshCharts();
+            _status.Text = $"Grafik eklendi: {recipe.Title}{(fips.Length > 0 ? " — " + county.Name : "")} (seq {row.Seq}) → {ChartsPath}";
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(ex.Message, "Grafik ekle", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    void BtnChartDelete_Click(object? sender, EventArgs e)
+    {
+        if (_gridCharts.CurrentRow?.Tag is not ChartList.Row row || !_gridCharts.CurrentRow.Selected)
+        {
+            MessageBox.Show("Önce listeden bir satır seç.", "Grafik listesi");
+            return;
+        }
+        var title = ChartList.Find(row.Chart)?.Title ?? row.Chart;
+        if (MessageBox.Show($"Sıra {row.Seq}: {title} silinsin mi?", "Grafik listesi", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        try
+        {
+            ChartList.DeleteLine(ChartsPath, row.Line);
+            RefreshCharts();
+            _status.Text = $"Grafik satırı silindi: {title}";
+        }
+        catch (IOException ex) { MessageBox.Show(ex.Message, "Grafik listesi", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+    }
+
+    /// Başka yerdeki grafik listesini out\grafikler_{ST}.csv adıyla kopyalar (önce okunabildiğini, varsa üzerine yazmayı sorar).
+    void BtnChartsPick_Click(object? sender, EventArgs e)
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = "Grafik listesi seç (seq, slot, fips, chart, metrics, text, caption)",
+            Filter = "CSV dosyası (*.csv)|*.csv|Tüm dosyalar (*.*)|*.*",
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        var target = ChartsPath;
+        try
+        {
+            var warnings = new List<string>();
+            var rows = ChartList.Read(dlg.FileName, SelectedStateFips, warnings);
+            if (rows.Count == 0)
+            {
+                MessageBox.Show("Dosyada kullanılabilir grafik satırı yok." + (warnings.Count > 0 ? "\n\n" + string.Join("\n", warnings.Take(10)) : ""), "Grafik listesi");
+                return;
+            }
+            if (!string.Equals(Path.GetFullPath(dlg.FileName), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+            {
+                if (File.Exists(target) && MessageBox.Show($"{Path.GetFileName(target)} zaten var. Üzerine yazılsın mı?", "Grafik listesi",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                Directory.CreateDirectory(_outDir);
+                File.Copy(dlg.FileName, target, overwrite: true);
+            }
+            RefreshCharts();
+            _status.Text = $"Grafik listesi: {rows.Count} satır{(warnings.Count > 0 ? $", {warnings.Count} uyarı" : "")} — {target}";
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(ex.Message, "Grafik listesi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 

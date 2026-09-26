@@ -84,7 +84,7 @@ public static class StudioExport
         return rows.OrderBy(r => r.Order).ToList();
     }
 
-    static List<string> SplitCsv(string line)
+    internal static List<string> SplitCsv(string line)
     {
         var fields = new List<string>();
         var sb = new StringBuilder();
@@ -108,10 +108,14 @@ public static class StudioExport
 
     // ---------- proje ----------
 
-    /// Projeyi kurar: state_map (bütün county'lerin sinyal boyaması) + her metin satırı için county_focus ve (ev varsa) price_ladder.
+    /// Projeyi kurar. Sıra: state_map (bütün county'lerin sinyal boyaması) → intro grafikleri (seq sırasıyla) → her metin
+    /// satırı için county_focus, o county'nin county_quiz'i, diğer grafikleri ve (ev varsa) price_ladder → 5. county'den sonra
+    /// mid grafikleri → en sonda closing grafikleri. Grafik listesi (charts) boşsa proje eskisi gibi kurulur.
     public static (JsonObject Project, int Scenes, double VideoSeconds) Build(Snapshot snap, IReadOnlyDictionary<string, HouseCard> cards,
-        List<TextRow> texts, string name, DateOnly today, List<string> warnings)
+        List<TextRow> texts, string name, DateOnly today, List<string> warnings,
+        List<ChartList.Row>? charts = null, ChartList.Context? chartCx = null, bool transparent = false)
     {
+        charts ??= new();
         var state = snap.State;
         var stateFips = snap.Counties.FirstOrDefault()?.County.Fips[..2] ?? "";
 
@@ -141,8 +145,36 @@ public static class StudioExport
             ["focus"] = null,
         }));
 
-        foreach (var t in texts)
+        // Grafikler: aynı seq'teki soru kartları tek vaat ekranı, diğer satırlar tek tek (dosya sırası korunur)
+        void AddCharts(IEnumerable<ChartList.Row> rows)
         {
+            if (chartCx == null) return;
+            foreach (var group in rows.GroupBy(r => r.Seq).OrderBy(g => g.Key))
+            {
+                var cardsInSeq = group.Where(r => r.Chart == "question_card").ToList();
+                if (cardsInSeq.Count > 0 && ChartList.Board(cardsInSeq, chartCx) is { } board)
+                {
+                    scenes.Add(board);
+                    seconds += ChartList.Find("question_card")!.Seconds;
+                }
+                foreach (var row in group.Where(r => r.Chart != "question_card"))
+                    if (ChartList.Scene(row, chartCx) is { } scene)
+                    {
+                        scenes.Add(scene);
+                        seconds += ChartList.Find(row.Chart)!.Seconds;
+                    }
+            }
+        }
+
+        var videoFips = texts.Select(t => t.Fips).ToHashSet();
+        foreach (var row in charts.Where(r => r.Slot == "county" && !videoFips.Contains(r.Fips)))
+            warnings.Add($"Grafik listesi seq {row.Seq} ({row.Chart}): {row.Fips} metin dosyasında yok, atlandı.");
+        var mid = charts.Where(r => r.Slot == "mid").ToList();
+        AddCharts(charts.Where(r => r.Slot == "intro"));
+
+        for (int i = 0; i < texts.Count; i++)
+        {
+            var t = texts[i];
             scenes.Add(Scene("county_focus", new JsonObject
             {
                 ["state"] = state,
@@ -152,53 +184,93 @@ public static class StudioExport
                 ["focus_stat"] = t.FocusStat,
             }));
             seconds += 5;
-
-            var countyName = snap.Counties.FirstOrDefault(r => r.County.Fips == t.Fips)?.County.Name ?? t.County;
-            if (!cards.TryGetValue(t.Fips, out var card) || card.Chosen is not { } h)
+            var own = charts.Where(r => r.Slot == "county" && r.Fips == t.Fips).ToList();
+            AddCharts(own.Where(r => r.Chart == "county_quiz"));
+            AddCharts(own.Where(r => r.Chart != "county_quiz"));
+            if (PriceLadder(snap, cards, t, today, warnings) is { } ladder)
             {
-                warnings.Add($"{countyName}: ev kartı yok, yalnızca county_focus üretildi (price_ladder atlandı).");
-                continue;
+                scenes.Add(ladder);
+                seconds += 11.5;
             }
-            var history = LadderHistory(h);
-            if (history.Count < 2)
-            {
-                warnings.Add($"{countyName}: fiyat geçmişinde en az 2 adım yok, price_ladder atlandı.");
-                continue;
-            }
-            var last = history[^1].Date;
-            var ladderToday = today < last ? last : today;
-            bool paid = h.LastSalePrice.HasValue;
-            bool condo = card.Mode == "Daire";
-            scenes.Add(Scene("price_ladder", new JsonObject
-            {
-                ["kicker"] = $"{countyName}  ·  {CityName(h.City)}".ToUpperInvariant(),
-                // Evde boş bırakılır (stüdyo "ONE HOUSE. N PRICE CUTS." yazar); dairede aynı kuralla "ONE CONDO. …"
-                ["title"] = condo ? CondoTitle(history) : "",
-                ["subtitle"] = Subtitle(h, condo),
-                ["history"] = new JsonArray(history.Select(s => (JsonNode)new JsonObject
-                {
-                    ["date"] = s.Date.ToString("yyyy-MM-dd", Inv),
-                    ["price"] = s.Price,
-                }).ToArray()),
-                ["today"] = ladderToday.ToString("yyyy-MM-dd", Inv),
-                ["paid"] = paid ? h.LastSalePrice : null,
-                ["paid_year"] = paid ? h.LastSaleDate?.Year : null,
-            }));
-            seconds += 11.5;
+            if (i == 4) AddCharts(mid);   // mid grafikleri 5. county'den sonra
         }
+        if (texts.Count < 5) AddCharts(mid);
+        AddCharts(charts.Where(r => r.Slot == "closing"));
 
         var project = new JsonObject
         {
             ["version"] = 1,
             ["name"] = name,
             ["transition"] = 0.6,
-            ["output"] = new JsonObject { ["separate"] = true, ["combined"] = true, ["transparent"] = false },
+            ["output"] = new JsonObject { ["separate"] = true, ["combined"] = true, ["transparent"] = transparent },
             ["scenes"] = scenes,
         };
         return (project, scenes.Count, seconds - 0.6 * (scenes.Count - 1));
     }
 
-    static JsonObject Scene(string type, JsonObject p) => new() { ["type"] = type, ["enabled"] = true, ["params"] = p };
+    /// County'nin seçilen evi için price_ladder; ev kartı ya da en az iki fiyat adımı yoksa null (uyarı yazılır).
+    static JsonObject? PriceLadder(Snapshot snap, IReadOnlyDictionary<string, HouseCard> cards, TextRow t, DateOnly today, List<string> warnings)
+    {
+        var countyName = snap.Counties.FirstOrDefault(r => r.County.Fips == t.Fips)?.County.Name ?? t.County;
+        if (!cards.TryGetValue(t.Fips, out var card) || card.Chosen is not { } h)
+        {
+            warnings.Add($"{countyName}: ev kartı yok, price_ladder atlandı.");
+            return null;
+        }
+        var history = LadderHistory(h);
+        if (history.Count < 2)
+        {
+            warnings.Add($"{countyName}: fiyat geçmişinde en az 2 adım yok, price_ladder atlandı.");
+            return null;
+        }
+        var last = history[^1].Date;
+        var ladderToday = today < last ? last : today;
+        bool paid = h.LastSalePrice.HasValue;
+        bool condo = card.Mode == "Daire";
+        return Scene("price_ladder", new JsonObject
+        {
+            ["kicker"] = $"{countyName}  ·  {CityName(h.City)}".ToUpperInvariant(),
+            // Evde boş bırakılır (stüdyo "ONE HOUSE. N PRICE CUTS." yazar); dairede aynı kuralla "ONE CONDO. …"
+            ["title"] = condo ? CondoTitle(history) : "",
+            ["subtitle"] = Subtitle(h, condo),
+            ["history"] = new JsonArray(history.Select(s => (JsonNode)new JsonObject
+            {
+                ["date"] = s.Date.ToString("yyyy-MM-dd", Inv),
+                ["price"] = s.Price,
+            }).ToArray()),
+            ["today"] = ladderToday.ToString("yyyy-MM-dd", Inv),
+            ["paid"] = paid ? h.LastSalePrice : null,
+            ["paid_year"] = paid ? h.LastSaleDate?.Year : null,
+        });
+    }
+
+    internal static JsonObject Scene(string type, JsonObject p) => new() { ["type"] = type, ["enabled"] = true, ["params"] = p };
+
+    /// Stüdyonun brand.json'undaki grafik renkleri (neutral, accent, loss ve price kategorisi); okunamazsa varsayılanlar.
+    /// Grafik sahnelerinde vurgu ve ok renkleri ayar olarak yazılır; FredPull renkleri kendisi seçmez, stüdyonunkini kullanır.
+    public static Dictionary<string, string> LoadColors(string? studioDir)
+    {
+        var colors = new Dictionary<string, string>
+        {
+            ["neutral"] = "#5b7fa6", ["accent"] = "#ff7a1f", ["loss"] = "#e0301e", ["price"] = "#e9b949",
+        };
+        try
+        {
+            var path = studioDir == null ? "" : Path.Combine(studioDir, "brand.json");
+            if (!File.Exists(path)) return colors;
+            using var doc = JsonDocument.Parse(File.ReadAllText(path, Encoding.UTF8));
+            if (doc.RootElement.TryGetProperty("colors", out var c))
+                foreach (var key in new[] { "neutral", "accent", "loss" })
+                    if (c.TryGetProperty(key, out var v) && v.GetString() is { Length: 7 } hex) colors[key] = hex.ToLowerInvariant();
+            if (doc.RootElement.TryGetProperty("categories", out var cats))
+                foreach (var cat in cats.EnumerateArray())
+                    if (cat.TryGetProperty("key", out var k) && k.GetString() == "price" && cat.TryGetProperty("color", out var pc)
+                        && pc.GetString() is { Length: 7 } hex)
+                        colors["price"] = hex.ToLowerInvariant();
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException) { }
+        return colors;
+    }
 
     /// Fiyat merdiveni: PriceSteps; aynı güne düşen adımlardan sonuncusu, ardışık eşit ya da 1.000 $'dan küçük farklı
     /// adımlar birleşir. Stüdyo her düşüşü indirim sayıyor; böylece videodaki indirim sayısı kart metniyle aynı kalır
