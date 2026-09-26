@@ -33,4 +33,4 @@ Grafik işinin denetiminde (26 Eylül) bulunan iki küçük sorun. İkisi de iki
 Florida verisiyle proje yeniden kurulduğunda Pasco grafiğinde "44 OF 100", "31 OF 100", "35 OF 100" yazmalı ve uyarı listesinde yalnızca Osceola kalmalı.
 
 ---
-Uygulandı: 2026-09-26, yalnız FredPull maddeleri (Claude Code). Stüdyo maddeleri ayrı. Ayrıntı: CLAUDE.md → Grafik listesi.
+Uygulandı: 2026-09-26, FredPull maddeleri (bf9a9b6) ve stüdyo maddeleri (stüdyo 938a5fb), Claude Code. Ayrıntı: CLAUDE.md → Grafik listesi.
