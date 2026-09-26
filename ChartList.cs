@@ -319,6 +319,9 @@ public static class ChartList
         return true;
     }
 
+    /// "MAY 2026": döküm tanımlarında ay adı her yerde İngilizce büyük harf.
+    static string MonthText(string yyyyMM) => TryMonth(yyyyMM, out _, out var y, out var n) ? $"{n} {y}" : yyyyMM;
+
     static bool FredMonth(Row row, CountyResult r, Context cx, out int m, out int y, out string name)
     {
         if (TryMonth(r.Month, out m, out y, out name)) return true;
@@ -335,12 +338,19 @@ public static class ChartList
 
     public static string Num(double v) => Math.Abs(v - Math.Round(v)) < 1e-9 ? v.ToString("N0", En) : v.ToString("#,0.0##", En);
 
-    /// Stüdyonun money_k biçimi: "$419K", "$1.2M" (Python round gibi yarımda çifte yuvarlar).
+    /// Ekrana giden tam sayı: yarımlar yukarı (2,5 → 3). Math.Round'un varsayılanı yarımı çifte yuvarlar (2,5 → 2).
+    public static double Whole(double v) => Math.Round(v, MidpointRounding.AwayFromZero);
+
+    /// Stüdyoya giden ondalıklı değer: iki ondalık, ekrandaki son yuvarlamayı stüdyo yapar. Tek ondalıkta 30,54 → 30,5
+    /// oluyor, stüdyo da yarımı çifte yuvarlayınca ekranda "30 OF 100" çıkıyordu (doğrusu 31).
+    public static double Two(double v) => Math.Round(v, 2, MidpointRounding.AwayFromZero);
+
+    /// Stüdyonun money_k biçimi: "$419K", "$1.2M"; yarımlar yukarı.
     public static string MoneyK(double v)
     {
         var a = Math.Abs(v);
-        if (a >= 1_000_000) return "$" + Math.Round(a / 1e6, 1, MidpointRounding.ToEven).ToString("0.0", Inv).Replace(".0", "") + "M";
-        return "$" + Math.Round(a / 1000, MidpointRounding.ToEven).ToString("N0", En) + "K";
+        if (a >= 1_000_000) return "$" + Math.Round(a / 1e6, 1, MidpointRounding.AwayFromZero).ToString("0.0", Inv).Replace(".0", "") + "M";
+        return "$" + Whole(a / 1000).ToString("N0", En) + "K";
     }
 
     static string Signed(double d, bool money) => (d < 0 ? Minus : "+") + (money ? MoneyK(Math.Abs(d)) : Num(Math.Abs(d)));
@@ -376,11 +386,23 @@ public static class ChartList
         return list;
     }
 
-    /// Redfin serisinde son 24 ayda bir aydan diğerine %60'tan büyük değişim (ör. veri kaynağı değişikliği) uyarı verir.
+    /// Aylık sıçrama kontrolü yapılan Redfin sayı serileri. Oran serileri (months_of_supply, avg_sale_to_list) mevsimseldir:
+    /// ocakta satış azaldığı için aylık stok her yıl sıçrar (Florida'da Pasco ve Polk yanlış alarm veriyordu).
+    static readonly HashSet<string> CountSeries = new() { "homes_sold", "inventory", "new_listings", "pending_sales", "median_sale_price" };
+
+    /// Sayı serisinde son 24 ayda bir aydan diğerine %60'tan büyük değişim (ör. veri kaynağı değişikliği) uyarı verir.
+    /// Oran serisinde aylık kontrol yapılmaz; kullanılan ayın değeri geçen yılın aynı ayıyla kıyaslanır (2,5 katından büyük
+    /// ya da 0,4 katından küçük değişim uyarı verir).
     static void CheckRedfin(List<Obs>? s, string yyyyMM, string county, string series, Context cx)
     {
-        if (s == null || !TryMonth(yyyyMM, out var m, out var y, out _)) return;
+        if (s == null || !TryMonth(yyyyMM, out var m, out var y, out var mn)) return;
         var end = new DateOnly(y, m, 1);
+        if (!CountSeries.Contains(series))
+        {
+            if (Analyzer.At(s, end.AddMonths(-12)) is double a0 && a0 > 0 && Analyzer.At(s, end) is double b0 && (b0 / a0 > 2.5 || b0 / a0 < 0.4))
+                cx.Warn($"{county}: {series} serisinde olağan dışı sıçrama ({mn} {y - 1} → {y}, {Num(a0)} → {Num(b0)}), grafiği kontrol edin.");
+            return;
+        }
         var pts = s.Where(o => o.Value.HasValue && o.Date <= end && o.Date > end.AddMonths(-24)).OrderBy(o => o.Date).ToList();
         for (int i = 1; i < pts.Count; i++)
         {
@@ -410,7 +432,7 @@ public static class ChartList
         p["title"] = "WHAT A TYPICAL HOME SOLD FOR";
         p["subtitle"] = $"MEDIAN SALE PRICE  ·  {mn} OF EACH YEAR";
         p["source"] = "SOURCE: REDFIN";
-        p["bars"] = Table(pts.Select(x => (x.Year.ToString(Inv), Math.Round(x.Value), x.Year == peak.Year)));
+        p["bars"] = Table(pts.Select(x => (x.Year.ToString(Inv), Whole(x.Value), x.Year == peak.Year)));
         p["value_format"] = "money_k";
         foreach (var x in pts) D(cx, row, r, x.Year.ToString(Inv), x.Value, $"Redfin median_sale_price {mn}");
         if (peak.Year != last.Year)
@@ -441,7 +463,7 @@ public static class ChartList
         p["title"] = "HOMES FOR SALE";
         p["subtitle"] = sub.Length > 0 ? $"EVERY {mn}  ·  {sub}" : $"EVERY {mn}";
         p["source"] = "SOURCE: REALTOR.COM VIA FRED";
-        p["points"] = Table(pts.Select(x => (x.Year.ToString(Inv), Math.Round(x.Value), false)));
+        p["points"] = Table(pts.Select(x => (x.Year.ToString(Inv), Whole(x.Value), false)));
         p["value_format"] = "count";
         p["mark_min"] = "yes";
         p["axis_from_zero"] = "yes";
@@ -450,15 +472,15 @@ public static class ChartList
         var ref2019 = pts.Where(x => x.Year == 2019).Select(x => (double?)x.Value).FirstOrDefault();
         if (ref2019 is double v19 && v19 > 0)
         {
-            p["ref_value"] = Math.Round(v19);
-            p["ref_label"] = $"2019 LEVEL: {Num(Math.Round(v19))}";
+            p["ref_value"] = Whole(v19);
+            p["ref_label"] = $"2019 LEVEL: {Num(Whole(v19))}";
             var ratio = last / v19;
             if (ratio >= 1.5)
             {
                 p["callout_value"] = ratio.ToString("0.#", Inv) + "×";
                 p["callout_label"] = "THE 2019 LEVEL";
                 p["callout_color"] = cx.Colors["accent"];
-                D(cx, row, r, "callout", Math.Round(ratio, 1), "son / 2019");
+                D(cx, row, r, "callout", Math.Round(ratio, 1, MidpointRounding.AwayFromZero), "son / 2019");
             }
             else
             {
@@ -495,7 +517,7 @@ public static class ChartList
         p["source"] = "SOURCE: REALTOR.COM VIA FRED";
         // dip son yılsa ok yok ve hepsi nötr: son satır işaretlenir, işaret rengi nötr (öncekiler zaten nötr)
         var mark = lowIsLast ? last.Year : low.Year;
-        p["bars"] = Table(pts.Select(x => (x.Year.ToString(Inv), Math.Round(x.Value), x.Year == mark)));
+        p["bars"] = Table(pts.Select(x => (x.Year.ToString(Inv), Whole(x.Value), x.Year == mark)));
         p["value_format"] = "count";
         p["highlight_color"] = cx.Colors["neutral"];
         p["after_color"] = cx.Colors["accent"];
@@ -522,12 +544,12 @@ public static class ChartList
         var mo = new DateOnly(y, m, 1);
         var def = $"PRIREDCOU / ACTLISCOU × 100, {mn} {y}";
         var rows = new List<(string, double, bool)>();
-        if (r.CutShare is double c) { rows.Add((Label(r, full: true), Math.Round(c, 1), true)); D(cx, row, r, "county", c, def); }
+        if (r.CutShare is double c) { rows.Add((Label(r, full: true), Two(c), true)); D(cx, row, r, "county", c, def); }
         var st = Analyzer.At(Analyzer.ShareSeries(cx.Snap.StateData), mo);
-        if (st is double s) { rows.Add((cx.StateName, Math.Round(s, 1), false)); D(cx, row, r, "eyalet", s, def); }
+        if (st is double s) { rows.Add((cx.StateName, Two(s), false)); D(cx, row, r, "eyalet", s, def); }
         else cx.Warn($"{cx.StateName}: {mn} {y} eyalet fiyat kıran payı yok.");
         var us = Analyzer.At(Analyzer.ShareSeries(cx.Snap.UsData), mo);
-        if (us is double u) { rows.Add(("UNITED STATES", Math.Round(u, 1), false)); D(cx, row, r, "ABD", u, def); }
+        if (us is double u) { rows.Add(("UNITED STATES", Two(u), false)); D(cx, row, r, "ABD", u, def); }
         else cx.Warn($"ABD: {mn} {y} fiyat kıran payı yok.");
         if (rows.Count < 2 || r.CutShare == null) { cx.Warn($"{ShortName(r.County.Name)}: cut_share_compare için veri yetmedi, grafik atlandı."); return null; }
         var p = Base(row, r, cx);
@@ -556,7 +578,7 @@ public static class ChartList
         p["title"] = "WHAT BUYERS REALLY PAY";
         p["subtitle"] = sub.Length > 0 ? $"{sub}  ·  {mn} {y} SALES" : $"{mn} {y} SALES";
         p["source"] = "SOURCE: REDFIN";
-        p["value"] = Math.Round(v, 1);
+        p["value"] = Two(v);
         p["max_value"] = 100;
         p["center_prefix"] = "$";
         p["center_label"] = "OF EVERY $100 ASKED";
@@ -577,9 +599,9 @@ public static class ChartList
         CheckRedfin(r.Data.R("months_of_supply"), r.RedfinMonth, name, "months_of_supply", cx);
         CheckRedfin(cx.Snap.StateData.R("months_of_supply"), r.RedfinMonth, cx.StateName, "months_of_supply", cx);
         var def = $"Redfin months_of_supply, {mn} {y}";
-        var tubes = new List<(string, double, bool)> { (Label(r, full: false), Math.Round(ms, 1), false) };
+        var tubes = new List<(string, double, bool)> { (Label(r, full: false), Two(ms), false) };
         D(cx, row, r, "county", ms, def);
-        if (r.MonthsSupplyState is double st) { tubes.Add((cx.StateName, Math.Round(st, 1), false)); D(cx, row, r, "eyalet", st, def); }
+        if (r.MonthsSupplyState is double st) { tubes.Add((cx.StateName, Two(st), false)); D(cx, row, r, "eyalet", st, def); }
         else cx.Warn($"{cx.StateName}: {mn} {y} eyalet aylık stoku yok, termometrede yalnız county var.");
         var p = Base(row, r, cx);
         p["title"] = "HOW LONG TO SELL EVERY HOME FOR SALE";
@@ -603,9 +625,9 @@ public static class ChartList
             if (r == null) continue;
             if (r.MonthsSupply is not double ms) { cx.Warn($"{ShortName(r.County.Name)}: aylık stok yok, sıralamaya girmedi."); continue; }
             CheckRedfin(r.Data.R("months_of_supply"), r.RedfinMonth, ShortName(r.County.Name), "months_of_supply", cx);
-            rows.Add((Label(r, full: false), Math.Round(ms, 1), false));
+            rows.Add((Label(r, full: false), Two(ms), false));
             if (string.CompareOrdinal(r.RedfinMonth, month) > 0) month = r.RedfinMonth;
-            D(cx, row, r, "value", ms, $"Redfin months_of_supply, {Analyzer.MonthName(r.RedfinMonth)}");
+            D(cx, row, r, "value", ms, $"Redfin months_of_supply, {MonthText(r.RedfinMonth)}");
         }
         if (rows.Count < 2) { cx.Warn("months_supply_rank: en az iki county'nin aylık stoku gerekli, grafik atlandı."); return null; }
         rows = rows.OrderByDescending(x => x.Value).ToList();
@@ -636,8 +658,8 @@ public static class ChartList
         p["title"] = "HOMES FOR SALE";
         p["subtitle"] = cx.FocusSub(r.County.Fips);
         p["source"] = $"SOURCE: REALTOR.COM VIA FRED  ·  {mn} {y - 1} AND {mn} {y}";
-        p["before"] = (int)Math.Round(pts[0].Value);
-        p["after"] = (int)Math.Round(pts[1].Value);
+        p["before"] = (int)Whole(pts[0].Value);
+        p["after"] = (int)Whole(pts[1].Value);
         p["unit"] = null;
         p["before_label"] = $"{mn} {y - 1}";
         p["after_label"] = $"{mn} {y}";
@@ -685,7 +707,7 @@ public static class ChartList
             case "homes_for_sale":
                 if (!fred || r.Active is not double a) return Missing("FRED satılık ev sayısı");
                 D(cx, row, r, metric, a, $"FRED ACTLISCOU {fmn} {fy}");
-                return Counter(Math.Round(a), "HOMES FOR SALE", $"{fmn} {fy}");
+                return Counter(Whole(a), "HOMES FOR SALE", $"{fmn} {fy}");
             case "cut_share_in10":
                 if (!fred || r.CutShare is not double c) return Missing("fiyat kıran payı");
                 var n10 = (int)Math.Clamp(Math.Round(c / 10, MidpointRounding.AwayFromZero), 0, 10);
@@ -699,12 +721,12 @@ public static class ChartList
                 if (!redfin || r.MonthsSupply is not double ms) return Missing("aylık stok");
                 CheckRedfin(r.Data.R("months_of_supply"), r.RedfinMonth, name, "months_of_supply", cx);
                 D(cx, row, r, metric, ms, $"Redfin months_of_supply, {rmn} {ry}");
-                return Counter(Math.Round(ms, 1), "MONTHS TO SELL EVERY HOME", $"{rmn} {ry}", decimals: 1);
+                return Counter(Two(ms), "MONTHS TO SELL EVERY HOME", $"{rmn} {ry}", decimals: 1);
             case "sale_to_list":
                 if (!redfin || r.SaleToList is not double stl) return Missing("satış/liste oranı");
                 CheckRedfin(r.Data.R("avg_sale_to_list"), r.RedfinMonth, name, "avg_sale_to_list", cx);
-                D(cx, row, r, metric, Math.Round(stl), $"Redfin avg_sale_to_list × 100, {rmn} {ry} (değer {stl.ToString("0.0", Inv)})");
-                return Counter(Math.Round(stl), "BUYERS PAY PER $100 ASKED", $"{rmn} {ry} SALES", prefix: "$");
+                D(cx, row, r, metric, Whole(stl), $"Redfin avg_sale_to_list × 100, {rmn} {ry} (değer {stl.ToString("0.0", Inv)})");
+                return Counter(Whole(stl), "BUYERS PAY PER $100 ASKED", $"{rmn} {ry} SALES", prefix: "$");
             case "sale_price_vs_peak":
             {
                 if (!redfin) return Missing("Redfin satış fiyatı");
@@ -718,8 +740,8 @@ public static class ChartList
                 D(cx, row, r, $"{metric} {last.Year}", last.Value, $"Redfin median_sale_price {rmn}");
                 return new JsonObject
                 {
-                    ["kind"] = "compare", ["label"] = "WHAT BUYERS PAY", ["note"] = $"{rmn} {ry} SALES", ["value"] = Math.Round(last.Value),
-                    ["value2"] = Math.Round(peak.Value), ["value2_label"] = $"{peak.Year} PEAK", ["value_label"] = "TODAY", ["format"] = "money_k",
+                    ["kind"] = "compare", ["label"] = "WHAT BUYERS PAY", ["note"] = $"{rmn} {ry} SALES", ["value"] = Whole(last.Value),
+                    ["value2"] = Whole(peak.Value), ["value2_label"] = $"{peak.Year} PEAK", ["value_label"] = "TODAY", ["format"] = "money_k",
                 };
             }
             case "stock_vs_2019":
@@ -731,8 +753,8 @@ public static class ChartList
                 D(cx, row, r, $"{metric} {pts[^1].Year}", pts[^1].Value, $"FRED ACTLISCOU {fmn}");
                 return new JsonObject
                 {
-                    ["kind"] = "compare", ["label"] = "HOMES FOR SALE", ["note"] = $"{fmn} {fy}", ["value"] = Math.Round(pts[^1].Value),
-                    ["value2"] = Math.Round(pts[0].Value), ["value2_label"] = "2019", ["value_label"] = "NOW", ["format"] = "count",
+                    ["kind"] = "compare", ["label"] = "HOMES FOR SALE", ["note"] = $"{fmn} {fy}", ["value"] = Whole(pts[^1].Value),
+                    ["value2"] = Whole(pts[0].Value), ["value2_label"] = "2019", ["value_label"] = "NOW", ["format"] = "count",
                 };
             }
         }
