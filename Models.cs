@@ -112,6 +112,7 @@ public class HouseCandidate
     public DateTime? FemaQueriedAt { get; set; }
     public string? FemaSource { get; set; }                   // sorgulanan servis (FEMA'nın kendisi ya da Esri kopyası) ve veri tarihi
     public string? FemaVersion { get; set; }                  // verinin sürümü: resmî serviste sorgu tarihi, kopyada katmanın kendi ifadesi
+    public string? FemaRoute { get; set; }                    // yol: resmî servis proxy üzerinden / doğrudan / Esri kopyası
     public string? FemaNote { get; set; }                     // sorgu başarılı, noktada poligon yok: kaynağın kapsamı
     public string? FemaError { get; set; }                    // servis hatası
 
@@ -169,6 +170,8 @@ public class FemaFlood
     public string? Result { get; set; }
     /// Verinin sürümü (resmî servis: sorgu tarihi; kopya: katmanın açıklamasındaki sürüm).
     public string? Version { get; set; }
+    /// Kullanılan yol: "resmî servis, proxy üzerinden (şema://sunucu)", "resmî servis, doğrudan" ya da Esri kopyası.
+    public string? Route { get; set; }
     /// Bölge bulunamadıysa katmanın kendi açıklamasındaki kapsam cümleleri (Zone boş kalır).
     public string? Note { get; set; }
 }

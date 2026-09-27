@@ -48,6 +48,7 @@ namespace FredPull
             _btnExtra = new Button();
             _lblCensusKey = new Label();
             _txtCensusKey = new TextBox();
+            _btnFemaProxy = new Button();
             _btnOpenOut = new Button();
             _btnRedfin = new Button();
             _lblRedfin = new Label();
@@ -206,6 +207,7 @@ namespace FredPull
             _top.Controls.Add(_btnExtra);
             _top.Controls.Add(_lblCensusKey);
             _top.Controls.Add(_txtCensusKey);
+            _top.Controls.Add(_btnFemaProxy);
             _top.Controls.Add(_btnRedfin);
             _top.Controls.Add(_lblRedfin);
             _top.Controls.Add(_btnAttachRedfin);
@@ -222,7 +224,7 @@ namespace FredPull
             _top.Padding = new Padding(8, 6, 8, 2);
             _top.Size = new Size(1544, 70);
             _top.TabIndex = 0;
-            _top.SetFlowBreak(_txtCensusKey, true);
+            _top.SetFlowBreak(_btnFemaProxy, true);
             //
             // _lblState
             //
@@ -345,9 +347,21 @@ namespace FredPull
             _txtCensusKey.Location = new Point(1300, 9);
             _txtCensusKey.Name = "_txtCensusKey";
             _txtCensusKey.PlaceholderText = "isteğe bağlı";
-            _txtCensusKey.Size = new Size(200, 23);
+            _txtCensusKey.Size = new Size(110, 23);
             _txtCensusKey.TabIndex = 11;
             _txtCensusKey.UseSystemPasswordChar = true;
+            //
+            // _btnFemaProxy
+            //
+            _btnFemaProxy.AutoSize = true;
+            _btnFemaProxy.Location = new Point(1416, 9);
+            _btnFemaProxy.Margin = new Padding(6, 3, 3, 3);
+            _btnFemaProxy.Name = "_btnFemaProxy";
+            _btnFemaProxy.Size = new Size(88, 25);
+            _btnFemaProxy.TabIndex = 12;
+            _btnFemaProxy.Text = "FEMA proxy…";
+            _btnFemaProxy.UseVisualStyleBackColor = true;
+            _btnFemaProxy.Click += BtnFemaProxy_Click;
             //
             // _btnRedfin
             //
@@ -1604,6 +1618,7 @@ namespace FredPull
         private Button _btnExtra;
         private Label _lblCensusKey;
         private TextBox _txtCensusKey;
+        private Button _btnFemaProxy;
         private Button _btnCancel;
         private Button _btnLoad;
         private Button _btnOpenOut;

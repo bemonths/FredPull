@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Text;
@@ -21,15 +22,109 @@ public sealed class ExtraData : IDisposable
     readonly HttpClient _http;
     readonly Action<string> _log;
 
+    const string UserAgent = "FredPull/1.0 (+https://github.com/bemonths/FredPull; county housing raw-data downloader)";
+
     public ExtraData(Action<string> log)
     {
         _log = log;
         _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         // tanımlayıcı User-Agent (OpenStreetMap Nominatim'in kullanım kuralı)
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("FredPull/1.0 (+https://github.com/bemonths/FredPull; county housing raw-data downloader)");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
     }
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose()
+    {
+        _http.Dispose();
+        _femaProxyClient?.Dispose();
+    }
+
+    // ---------- FEMA proxy (yalnızca FEMA istekleri; Census, CMS, OSM, Redfin doğrudan) ----------
+
+    /// Ayarlardaki FEMA proxy'si. Adres http://host:port ya da socks5://host:port (socks4/socks4a/https de olur); kullanıcı adı
+    /// ve parola ayrı. Günlüğe yalnızca şema ve sunucu adı yazılır (Label); hata metinlerinde adres, kullanıcı adı ve parola gizlenir.
+    public sealed record ProxySettings(string Address, string? User, string? Password)
+    {
+        public Uri Uri => new(Address.Trim());
+        public string Label => $"{Uri.Scheme}://{Uri.Host}";
+
+        /// Adres geçerliyse null, değilse kullanıcıya gösterilecek hata.
+        public static string? Validate(string address)
+        {
+            if (!Uri.TryCreate(address.Trim(), UriKind.Absolute, out var u)) return "Adres http://host:port ya da socks5://host:port biçiminde olmalı.";
+            if (u.Scheme is not ("http" or "https" or "socks5" or "socks4" or "socks4a")) return $"Desteklenmeyen şema: {u.Scheme} (http, https, socks5, socks4, socks4a).";
+            if (u.UserInfo.Length > 0) return "Kullanıcı adı ve parolayı adrese değil, ayrı kutulara yaz.";
+            if (u.Host.Length == 0) return "Adreste sunucu adı yok.";
+            if (u.IsDefaultPort && !address.Contains($":{u.Port}", StringComparison.Ordinal)) return "Adreste port yok (ör. socks5://host:1080).";
+            return null;
+        }
+
+        /// Hata metninden proxy adresini, portunu, kullanıcı adını ve parolayı çıkarır; yerine yalnızca şema://sunucu kalır.
+        public string Sanitize(string text)
+        {
+            var s = text.Replace(Uri.ToString(), Label).Replace(Address.Trim(), Label).Replace(Uri.Authority, Uri.Host);
+            if (!string.IsNullOrEmpty(Password)) s = s.Replace(Password, "***");
+            if (!string.IsNullOrEmpty(User)) s = s.Replace(User, "***");
+            return s;
+        }
+    }
+
+    public ProxySettings? FemaProxy { get; init; }
+    HttpClient? _femaProxyClient;
+
+    static HttpClient ProxyClient(ProxySettings p)
+    {
+        var proxy = new WebProxy(p.Uri) { BypassProxyOnLocal = false };
+        if (!string.IsNullOrEmpty(p.User)) proxy.Credentials = new NetworkCredential(p.User, p.Password ?? "");
+        var handler = new SocketsHttpHandler { Proxy = proxy, UseProxy = true, ConnectTimeout = TimeSpan.FromSeconds(20) };
+        var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
+        return client;
+    }
+
+    static string Flat(Exception ex)
+    {
+        var parts = new List<string>();
+        for (var e = ex; e != null; e = e.InnerException) parts.Add(e.Message.Split('\n')[0].Trim());
+        return string.Join(" → ", parts.Distinct());
+    }
+
+    public sealed record ProxyTestResult(bool Ok, string Text);
+
+    /// "Proxy'yi dene": FEMA servisinin katman listesi proxy üzerinden (iki resmî adres sırayla); başarılıysa proxy'nin çıkış IP'si
+    /// (api.ipify.org, yalnızca bilgi). Metin kullanıcıya gösterilir; proxy adresi ve kimlik bilgisi içermez.
+    public static async Task<ProxyTestResult> TestFemaProxyAsync(ProxySettings p, CancellationToken ct, IReadOnlyList<string>? services = null)
+    {
+        using var client = ProxyClient(p);
+        var lines = new List<string> { $"Proxy: {p.Label}{(string.IsNullOrEmpty(p.User) ? "" : " (kimlik bilgisiyle)")}" };
+        bool ok = false;
+        foreach (var service in services ?? DefaultFemaServices)
+        {
+            var url = service + "?f=json";
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                using var resp = await client.GetAsync(url, ct);
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                ok = resp.StatusCode == HttpStatusCode.OK && body.Contains("\"layers\"", StringComparison.Ordinal);
+                lines.Add($"{(ok ? "BAŞARILI" : "BAŞARISIZ")}: {url} — HTTP {(int)resp.StatusCode}, {sw.ElapsedMilliseconds} ms{(ok ? "" : ", yanıtta katman listesi yok")}");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or NotSupportedException)
+            {
+                lines.Add($"BAŞARISIZ: {url} — {sw.ElapsedMilliseconds} ms, {p.Sanitize(Flat(ex))}");
+            }
+            if (ok) break;
+        }
+        if (ok)
+        {
+            try
+            {
+                var ip = (await client.GetStringAsync("https://api.ipify.org", ct)).Trim();
+                lines.Add($"Proxy'nin çıkış IP'si (api.ipify.org): {ip}");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { lines.Add("Çıkış IP'si okunamadı: " + p.Sanitize(Flat(ex))); }
+        }
+        return new ProxyTestResult(ok, string.Join(Environment.NewLine, lines));
+    }
 
     /// Bir çıktının manifest kaydı: kaynak, çekiliş zamanı, veri dönemi, satır sayısı, uyarılar.
     public sealed class Entry
@@ -55,9 +150,11 @@ public sealed class ExtraData : IDisposable
         File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
     }
 
-    async Task<(int Code, string Body)> GetAsync(string url, CancellationToken ct)
+    Task<(int Code, string Body)> GetAsync(string url, CancellationToken ct) => GetAsync(_http, url, ct);
+
+    static async Task<(int Code, string Body)> GetAsync(HttpClient client, string url, CancellationToken ct)
     {
-        using var resp = await _http.GetAsync(url, ct);
+        using var resp = await client.GetAsync(url, ct);
         return ((int)resp.StatusCode, await resp.Content.ReadAsStringAsync(ct));
     }
 
@@ -410,15 +507,18 @@ public sealed class ExtraData : IDisposable
 
     // ---------- 8. FEMA sel bölgesi ----------
 
-    // resmî NFHL servisinin iki adresi; sırayla denenir
-    static readonly string[] FemaServices =
+    // resmî NFHL servisinin iki adresi; sırayla denenir (testte FemaServiceUrls ile değiştirilebilir)
+    public static readonly string[] DefaultFemaServices =
     {
         "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer",
         "https://hazards.fema.gov/gis/nfhl/rest/services/public/NFHL/MapServer",
     };
+    public IReadOnlyList<string> FemaServiceUrls { get; init; } = DefaultFemaServices;
     const string FemaMirror = "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Flood_Hazard_Reduced_Set_gdb/FeatureServer";
     string? _femaLayer;
     bool _femaOfficial;
+    HttpClient? _femaClient;         // katmanın bulunduğu yol: proxy'li istemci ya da doğrudan
+    string _femaRoute = "";          // "resmî servis, proxy üzerinden (socks5://host)" / "resmî servis, doğrudan" / "Esri kopyası …"
     string _femaSource = "";
     string? _femaLayerStatement;     // katmanın kendi açıklamasından kapsam cümleleri (İngilizce, olduğu gibi)
     string? _femaMirrorVersion;      // kopyanın sürümü, katmanın kendi ifadesinden
@@ -455,58 +555,31 @@ public sealed class ExtraData : IDisposable
         return $"FEMA NFHL'in {tr} sürümünden türetilmiş (katmanın kendi açıklaması: \"This layer is {m.Value}.\")";
     }
 
-    /// "Flood Hazard Zones" katmanı servisin katman listesinden adıyla bulunur; resmî servisin iki adresi sırayla denenir.
-    /// İkisi de olmazsa bağlantı teşhisi (FemaDiagnostics) bir kez çalışıp günlüğe yazılır ve Esri Living Atlas'taki FEMA NFHL
-    /// kopyasına düşülür; hangisinin kullanıldığı ve verinin sürümü her evin kaydına yazılır.
+    /// Resmî servisin katman listesinden "Flood Hazard Zones" adıyla bulunur. Sıra: (1) proxy tanımlıysa resmî servis proxy
+    /// üzerinden, (2) resmî servis doğrudan, (3) ikisi de olmazsa bağlantı teşhisi (FemaDiagnostics, bir kez, günlüğe) ve Esri
+    /// Living Atlas'taki FEMA NFHL kopyası. Kullanılan yol ve verinin sürümü her evin kaydına yazılır.
     async Task<string?> FemaLayerAsync(List<string> warnings, CancellationToken ct)
     {
         if (_femaLayer != null) return _femaLayer;
         var errors = new List<string>();
-        foreach (var service in FemaServices)
+        if (FemaProxy != null)
         {
-            try
-            {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts.CancelAfter(TimeSpan.FromSeconds(30));
-                var (code, body) = await GetAsync(service + "?f=json", cts.Token);
-                if (code != 200) { errors.Add($"{service}: HTTP {code}"); continue; }
-                using var doc = JsonDocument.Parse(body);
-                foreach (var l in doc.RootElement.GetProperty("layers").EnumerateArray())
-                    if (string.Equals(l.GetProperty("name").GetString(), "Flood Hazard Zones", StringComparison.OrdinalIgnoreCase))
-                    {
-                        _femaLayer = $"{service}/{l.GetProperty("id").GetInt32()}";
-                        _femaOfficial = true;
-                        _femaSource = $"FEMA NFHL, resmî servis ({_femaLayer})";
-                        try
-                        {
-                            var (lc, lb) = await GetAsync(_femaLayer + "?f=json", cts.Token);
-                            using var ld = JsonDocument.Parse(lb);
-                            _femaLayerStatement = lc == 200 && ld.RootElement.TryGetProperty("description", out var dsc) ? LayerStatement(dsc.GetString()) : null;
-                        }
-                        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException) { }
-                        _log($"FEMA: resmî servis kullanılıyor — {_femaLayer}");
-                        return _femaLayer;
-                    }
-                errors.Add($"{service}: \"Flood Hazard Zones\" katmanı yok");
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
-            {
-                errors.Add($"{service}: {ex.Message.Split('\n')[0]}{(ex.InnerException != null ? " → " + ex.InnerException.Message.Split('\n')[0] : "")}");
-            }
+            _femaProxyClient ??= ProxyClient(FemaProxy);
+            if (await OfficialLayerAsync(_femaProxyClient, $"resmî servis, proxy üzerinden ({FemaProxy.Label})", errors, ct) is { } viaProxy) return viaProxy;
+            warnings.Add($"FEMA proxy'si ({FemaProxy.Label}) üzerinden resmî servise ulaşılamadı: {errors.LastOrDefault()}; doğrudan deneniyor.");
         }
-        foreach (var err in errors) _log("FEMA resmî servis: " + err);
-
+        if (await OfficialLayerAsync(_http, "resmî servis, doğrudan", errors, ct) is { } direct) return direct;
         // teşhis: aynı makineden farklı yollarla (günlüğe)
         try
         {
             _log("FEMA bağlantı teşhisi başlıyor");
-            var diag = await FemaDiagnostics.RunAsync(FemaServices.Select(s => s + "?f=json").ToList(), ct);
+            var diag = await FemaDiagnostics.RunAsync(FemaServiceUrls.Select(s => s + "?f=json").ToList(), ct);
             foreach (var line in diag.Lines) _log("FEMA teşhis: " + line);
             _log("FEMA teşhis sonucu: " + diag.Summary);
             _femaDiagnosis = diag.Summary;
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { _log("FEMA teşhisi yapılamadı: " + ex.Message); }
-        warnings.Add($"FEMA'nın resmî servisine bağlanılamadı ({errors.FirstOrDefault()}); Esri Living Atlas'taki FEMA NFHL kopyası kullanıldı." +
+        warnings.Add($"FEMA'nın resmî servisine bağlanılamadı ({errors.LastOrDefault()}); Esri Living Atlas'taki FEMA NFHL kopyası kullanıldı." +
                      (_femaDiagnosis != null ? " Teşhis: " + _femaDiagnosis : ""));
 
         try
@@ -517,6 +590,7 @@ public sealed class ExtraData : IDisposable
             var date = doc.RootElement.TryGetProperty("editingInfo", out var ei) && ei.TryGetProperty("dataLastEditDate", out var dl) && dl.ValueKind == JsonValueKind.Number
                 ? DateTimeOffset.FromUnixTimeMilliseconds(dl.GetInt64()).UtcDateTime.ToString("yyyy-MM-dd", Inv) : "?";
             _femaLayer = FemaMirror + "/0";
+            (_femaClient, _femaRoute) = (_http, "Esri Living Atlas kopyası (resmî servise " + (FemaProxy != null ? "proxy ile de " : "") + "ulaşılamadı)");
             _femaSource = $"Esri Living Atlas, USA Flood Hazard Reduced Set — FEMA NFHL'den türetilmiş kopya, katmanın son düzenleme tarihi {date} ({_femaLayer})";
             // kapsam cümleleri servisin açıklamasında (katmanın kendi açıklaması boş)
             try
@@ -537,18 +611,60 @@ public sealed class ExtraData : IDisposable
         }
     }
 
+    /// Resmî servisin adreslerini verilen istemciyle dener; katman bulunursa yolu, istemciyi ve kaynağı ayarlar.
+    async Task<string?> OfficialLayerAsync(HttpClient client, string route, List<string> errors, CancellationToken ct)
+    {
+        int from = errors.Count;
+        foreach (var service in FemaServiceUrls)
+        {
+            try
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(30));
+                var (code, body) = await GetAsync(client, service + "?f=json", cts.Token);
+                if (code != 200) { errors.Add($"{route}: {service}: HTTP {code}"); continue; }
+                using var doc = JsonDocument.Parse(body);
+                foreach (var l in doc.RootElement.GetProperty("layers").EnumerateArray())
+                    if (string.Equals(l.GetProperty("name").GetString(), "Flood Hazard Zones", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _femaLayer = $"{service}/{l.GetProperty("id").GetInt32()}";
+                        (_femaOfficial, _femaClient, _femaRoute) = (true, client, route);
+                        _femaSource = $"FEMA NFHL, resmî servis ({_femaLayer})";
+                        try
+                        {
+                            var (lc, lb) = await GetAsync(client, _femaLayer + "?f=json", cts.Token);
+                            using var ld = JsonDocument.Parse(lb);
+                            _femaLayerStatement = lc == 200 && ld.RootElement.TryGetProperty("description", out var dsc) ? LayerStatement(dsc.GetString()) : null;
+                        }
+                        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException) { }
+                        _log($"FEMA: {route} — {_femaLayer}");
+                        return _femaLayer;
+                    }
+                errors.Add($"{route}: {service}: \"Flood Hazard Zones\" katmanı yok");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException or IOException or NotSupportedException)
+            {
+                var msg = Flat(ex);
+                errors.Add($"{route}: {service}: {(FemaProxy != null ? FemaProxy.Sanitize(msg) : msg)}");
+            }
+        }
+        foreach (var err in errors.Skip(from)) _log("FEMA: " + err);
+        return null;
+    }
+
     public async Task<FemaFlood> FloodZoneAsync(double lat, double lng, List<string> warnings, CancellationToken ct)
     {
         var f = new FemaFlood { QueriedAt = DateTime.Now, Result = FemaFailed };
         var layer = await FemaLayerAsync(warnings, ct);
         if (layer == null) { f.Error = "FEMA servisi ve kopyası yanıt vermedi"; return f; }
         f.Source = _femaSource;
+        f.Route = _femaRoute;
         f.Version = _femaOfficial ? $"FEMA NFHL resmî servisi, sorgu tarihi {f.QueriedAt:yyyy-MM-dd}" : _femaMirrorVersion;
         var q = $"geometry={lng.ToString(Inv)},{lat.ToString(Inv)}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects" +
                 "&outFields=FLD_ZONE,ZONE_SUBTY,SFHA_TF&returnGeometry=false&f=json";
         try
         {
-            var (code, body) = await GetAsync($"{layer}/query?{q}", ct);
+            var (code, body) = await GetAsync(_femaClient ?? _http, $"{layer}/query?{q}", ct);
             if (code != 200) { f.Error = $"HTTP {code}"; return f; }
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("error", out var err)) { f.Error = err.GetRawText(); return f; }
@@ -563,9 +679,9 @@ public sealed class ExtraData : IDisposable
             string? S(string n) => a.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
             (f.Zone, f.Subtype, f.Sfha, f.Result) = (S("FLD_ZONE"), S("ZONE_SUBTY"), S("SFHA_TF"), FemaFound);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException or IOException)
         {
-            f.Error = ex.Message.Split('\n')[0];
+            f.Error = FemaProxy != null ? FemaProxy.Sanitize(Flat(ex)) : Flat(ex);
         }
         return f;
     }
@@ -616,14 +732,27 @@ public sealed class ExtraData : IDisposable
         foreach (var (card, h) in todo)
         {
             status.Report($"Ev kartları: FEMA sel bölgesi {++n}/{todo.Count}");
+            // önceki sonuç Esri kopyasındansa resmî servisin sonucuyla yan yana günlüğe (seçili evler)
+            // (sonuç alanı olmayan eski kayıtlarda: hata yoksa ve bölge boşsa "bölge bulunamadı")
+            var fromMirror = h.FemaSource?.StartsWith("Esri", StringComparison.Ordinal) == true && h.FemaError == null && h.FemaQueriedAt != null
+                ? $"{h.FemaZone ?? FemaNoZone}{(h.FemaZoneSubtype != null ? " / " + h.FemaZoneSubtype : "")}" : null;
             var f = await FloodZoneAsync(h.Lat!.Value, h.Lng!.Value, e.Warnings, ct);
-            (h.FemaResult, h.FemaZone, h.FemaZoneSubtype, h.FemaSfha, h.FemaQueriedAt, h.FemaSource, h.FemaVersion, h.FemaNote, h.FemaError) =
-                (f.Result, f.Zone, f.Subtype, f.Sfha, f.QueriedAt, f.Source, f.Version, f.Note, f.Error);
+            (h.FemaResult, h.FemaZone, h.FemaZoneSubtype, h.FemaSfha, h.FemaQueriedAt, h.FemaSource, h.FemaVersion, h.FemaRoute, h.FemaNote, h.FemaError) =
+                (f.Result, f.Zone, f.Subtype, f.Sfha, f.QueriedAt, f.Source, f.Version, f.Route, f.Note, f.Error);
             if (f.Error != null) e.Warnings.Add($"{card.County}: {h.Street} FEMA sorgusu başarısız: {f.Error}");
+            else if (_femaOfficial && fromMirror != null && card.Chosen == h)
+            {
+                var official = $"{f.Zone ?? f.Result}{(f.Subtype != null ? " / " + f.Subtype : "")}";
+                bool same = string.Equals(f.Zone ?? f.Result, fromMirror.Split(" / ")[0], StringComparison.OrdinalIgnoreCase);
+                var line = $"resmî servis {official}; önceki Esri kopyası (FEMA 5 Ekim 2022 türevi) {fromMirror} — {(same ? "bölge aynı" : "BÖLGE FARKLI")}";
+                _log($"FEMA karşılaştırma: {card.County}: {h.Street}: {line}");
+                e.Details[$"fema_karşılaştırma: {card.County} ({h.Street})"] = line;
+            }
         }
         e.Warnings = e.Warnings.Distinct().ToList();
         e.Rows = all.Count;
         e.Details["fema_sorgusu"] = todo.Count.ToString(Inv);
+        if (_femaRoute.Length > 0) e.Details["fema_yolu"] = _femaRoute;
         if (_femaSource.Length > 0) e.Details["fema_kaynağı"] = _femaSource;
         e.Details["fema_sürümü"] = _femaOfficial ? $"FEMA NFHL resmî servisi, sorgu tarihi {DateTime.Now:yyyy-MM-dd}" : _femaMirrorVersion ?? "—";
         if (_femaDiagnosis != null) e.Details["fema_bağlantı_teşhisi"] = _femaDiagnosis;
@@ -727,6 +856,7 @@ public sealed class ExtraData : IDisposable
             F("ZONE_SUBTY", h.FemaZoneSubtype);
             F("SFHA_TF", h.FemaSfha);
             F("Kaynak", h.FemaSource);
+            F("Yol", h.FemaRoute);
             F("Verinin sürümü", h.FemaVersion);
             F("Sorgu zamanı", h.FemaQueriedAt?.ToString("yyyy-MM-dd HH:mm", Inv));
             if (h.FemaNote != null) F("Kaynak katmanın kapsamı", h.FemaNote);

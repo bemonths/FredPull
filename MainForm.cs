@@ -290,7 +290,7 @@ public partial class MainForm : Form
                             $"• Hastaneler (CMS): {string.Join(", ", new[] { st }.Concat(neighbors))}; adresler Census Geocoder ile koordinata\n" +
                             "• Havalimanları (OurAirports)\n" +
                             (chosenCount > 0 ? $"• Seçili {chosenCount} evin Redfin ilan sayfası (tarayıcı açılır, ev başına ~30 sn): açıklama, vergi, aidat, sel ve iklim bilgisi; seçimler değişmez\n" : "") +
-                            (cards.Count > 0 ? $"• Ev kartları ({cards.Count} ilçe): eksik koordinat ve FEMA sel bölgesi; out\\ev_detaylari_{st}.md\n" : "") +
+                            (cards.Count > 0 ? $"• Ev kartları ({cards.Count} ilçe): eksik koordinat ve FEMA sel bölgesi ({(CurrentFemaProxy() is { } fp ? $"önce proxy {fp.Label}, sonra doğrudan" : "doğrudan")}, olmazsa Esri kopyası); out\\ev_detaylari_{st}.md\n" : "") +
                             "\nBaşlasın mı?", "Ek veriler", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
         var ct = BeginWork();
@@ -305,7 +305,7 @@ public partial class MainForm : Form
         var sw = Stopwatch.StartNew();
         try
         {
-            using var extra = new ExtraData(Log);
+            using var extra = new ExtraData(Log) { FemaProxy = CurrentFemaProxy() };
 
             async Task Step(string file, Func<Task<ExtraData.Entry>> run)
             {
@@ -533,7 +533,7 @@ public partial class MainForm : Form
         _progress.Maximum = targets.Count;
         var status = new Progress<string>(s => _status.Text = $"{Math.Min(done + 1, targets.Count)}/{targets.Count}  {s}");
         RedfinListingPicker? picker = null;
-        using var extra = new ExtraData(Log);
+        using var extra = new ExtraData(Log) { FemaProxy = CurrentFemaProxy() };
         try
         {
             _status.Text = cdp ? $"Açık Chrome'a bağlanılıyor ({RedfinListingPicker.CdpEndpoint})..." : "Tarayıcı açılıyor...";
@@ -624,6 +624,43 @@ public partial class MainForm : Form
         public string? LastStudioOut { get; set; }      // son render'ın çıktı klasörü ("Çıktı klasörünü aç")
         public bool Transparent { get; set; }           // stüdyo projesi şeffaf arka planla (MOV) çıksın
         public string? CensusKey { get; set; }          // Census Data API anahtarı (ek veriler: ACS)
+        public string? FemaProxy { get; set; }          // yalnız FEMA istekleri için proxy adresi (http://host:port, socks5://host:port)
+        public string? FemaProxyUser { get; set; }
+        public string? FemaProxyPasswordProtected { get; set; }   // parola, DPAPI (bu Windows kullanıcısı) ile şifreli, base64
+    }
+
+    static string? Protect(string? plain) => string.IsNullOrEmpty(plain) ? null
+        : Convert.ToBase64String(System.Security.Cryptography.ProtectedData.Protect(Encoding.UTF8.GetBytes(plain), null,
+            System.Security.Cryptography.DataProtectionScope.CurrentUser));
+
+    static string? Unprotect(string? protectedBase64)
+    {
+        if (string.IsNullOrEmpty(protectedBase64)) return null;
+        try
+        {
+            return Encoding.UTF8.GetString(System.Security.Cryptography.ProtectedData.Unprotect(Convert.FromBase64String(protectedBase64), null,
+                System.Security.Cryptography.DataProtectionScope.CurrentUser));
+        }
+        catch (Exception ex) when (ex is FormatException or System.Security.Cryptography.CryptographicException) { return null; }   // başka kullanıcı/makine
+    }
+
+    /// Ayarlardaki FEMA proxy'si; adres yoksa ya da geçersizse null (geçersizse durum satırına yazılır).
+    ExtraData.ProxySettings? CurrentFemaProxy()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.FemaProxy)) return null;
+        if (ExtraData.ProxySettings.Validate(_settings.FemaProxy) is { } err) { _status.Text = "FEMA proxy ayarı geçersiz: " + err; return null; }
+        return new ExtraData.ProxySettings(_settings.FemaProxy, _settings.FemaProxyUser, Unprotect(_settings.FemaProxyPasswordProtected));
+    }
+
+    void BtnFemaProxy_Click(object? sender, EventArgs e)
+    {
+        using var f = new FemaProxyForm(_settings.FemaProxy, _settings.FemaProxyUser, Unprotect(_settings.FemaProxyPasswordProtected));
+        if (f.ShowDialog(this) != DialogResult.OK) return;
+        _settings.FemaProxy = f.Address.Length > 0 ? f.Address : null;
+        _settings.FemaProxyUser = f.Address.Length > 0 && f.User.Length > 0 ? f.User : null;
+        _settings.FemaProxyPasswordProtected = f.Address.Length > 0 ? Protect(f.Password) : null;
+        SaveSettings();
+        _status.Text = f.Current is { } p ? $"FEMA proxy kaydedildi: {p.Label}" : "FEMA proxy kaldırıldı; FEMA'ya doğrudan bağlanılacak.";
     }
 
     AppSettings _settings = new();
