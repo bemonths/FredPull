@@ -102,6 +102,10 @@ public class HouseCandidate
 
     // Ham ek bilgiler (ek veri katmanı): FredPull yorumlamaz, bulunamayan alan boş kalır
     public RedfinDetails? Redfin { get; set; }                // ilan sayfasındaki ayrıntılar, sayfada yazdığı gibi
+    public string? ListingStatus { get; set; }                // son ziyarette Redfin'in gösterdiği ilan durumu (Active, Pending, Sold...)
+    public DateTime? ListingStatusAt { get; set; }            // durumun okunduğu (ya da okunamadığı) zaman
+    public string? ListingStatusNote { get; set; }            // durum okunamadıysa sebebi: HTTP durumu, yönlendirme, engel, boş sayfa
+    public string? FemaResult { get; set; }                   // "bölge bulundu" / "sorgu başarılı, bölge bulunamadı" / "sorgu başarısız"
     public string? FemaZone { get; set; }                     // FEMA NFHL nokta sorgusu: FLD_ZONE
     public string? FemaZoneSubtype { get; set; }              // ZONE_SUBTY
     public string? FemaSfha { get; set; }                     // SFHA_TF ("T" / "F")
@@ -118,14 +122,17 @@ public class HouseCandidate
 public class RedfinDetails
 {
     public DateTime ReadAt { get; set; }
+    public string? ListingStatus { get; set; }                // Redfin'in gösterdiği ilan durumu: Active, Pending, Sold...
     public string? Description { get; set; }                  // "About this home"
     public string? PropertyTax { get; set; }                  // yıllık emlak vergisi (kamu kayıtları)
     public string? PropertyTaxYear { get; set; }
-    public string? Hoa { get; set; }                          // aidat tutarı
-    public string? HoaPeriod { get; set; }
-    public string? FloodZone { get; set; }                    // Redfin'in gösterdiği FEMA bölgesi
-    public string? FloodInsuranceEstimate { get; set; }       // Redfin tahmini sel sigortası aralığı
-    public Dictionary<string, string> ClimateRisk { get; set; } = new();   // flood / fire / heat / wind → Redfin'in puanı
+    public string? Hoa { get; set; }                          // aidat tutarı (MLS alanı, yazıldığı gibi)
+    public string? HoaPeriod { get; set; }                    // aidat dönemi (MLS alanı)
+    public string? HoaMonthlyRedfin { get; set; }             // Redfin ödeme hesaplayıcısının aylık aidat alanı
+    public string? HoaAmenities { get; set; }                 // ilanın "HOA Information" grubu olduğu gibi (ALAN=değer; ...)
+    public string? FloodZone { get; set; }                    // Redfin'in gösterdiği FEMA bölgesi (tahmini, MassiveCert)
+    public string? FloodInsuranceEstimate { get; set; }       // Redfin tahmini yıllık sel sigortası aralığı ($, alt–üst)
+    public Dictionary<string, string> ClimateRisk { get; set; } = new();   // flood / fire / heat / wind / air → First Street puanı (1-10)
     public string? AgentName { get; set; }
     public string? OfficeName { get; set; }
     public Dictionary<string, string> Found { get; set; } = new();
@@ -141,7 +148,9 @@ public class FemaFlood
     public string Source { get; set; } = "";
     public DateTime QueriedAt { get; set; }
     public string? Error { get; set; }
-    /// Sorgu başarılı ama noktada poligon yoksa kaynağın kapsamı (Zone boş kalır).
+    /// ExtraData.FemaFound / FemaNoZone / FemaFailed.
+    public string? Result { get; set; }
+    /// Bölge bulunamadıysa katmanın kendi açıklamasındaki kapsam cümleleri (Zone boş kalır).
     public string? Note { get; set; }
 }
 

@@ -58,10 +58,10 @@ Google Flow'a yapıştırılacak 10 saniyelik harita intro'su prompt'u, seçili 
 "Ek verileri çek" seçili eyalet için resmî kaynaklardan ham tabloları out\ek_XX\ klasörüne indirir. FredPull hesap ve yorum yapmaz; karşılaştırma ve eşleştirme yapay zeka projelerinde yapılır.
 - acs_XX.csv — Census ACS 5 yıllık: ödenen medyan emlak vergisi, medyan ev değeri, nüfus, 65 yaş üstü gruplar (county'ler + eyalet + ABD). Census anahtarı gerekir (ücretsiz: https://api.census.gov/data/key_signup.html); üst çubuktaki "Census anahtarı" kutusuna yaz.
 - izinler_XX.csv — FRED yıllık konut izinleri (county başına).
-- hastaneler_XX.csv — CMS hastane listesi (eyalet + komşu eyaletler) ve adreslerin koordinatları (Census Geocoder).
-- havalimanlari.csv — eyaletteki tarifeli seferli büyük/orta havalimanları (OurAirports).
+- hastaneler_XX.csv — CMS hastane listesi (eyalet + komşu eyaletler) ve koordinatları (Census Geocoder, bulamazsa sadeleştirilmiş adresle yeniden, o da olmazsa OpenStreetMap; kaynağı coord_source sütununda).
+- havalimanlari.csv — ABD'nin tamamındaki tarifeli seferli büyük/orta havalimanları (OurAirports, ~500 satır).
 - manifest.json — her dosyanın kaynağı, çekiliş zamanı, veri dönemi, satır sayısı ve uyarıları.
-- Seçili evlerin Redfin ilan sayfaları açılır (tarayıcı açılır, ev başına ~30 sn): açıklama, vergi, aidat, sel ve iklim bilgisi okunur. Aday listesi, seçili ev ve kart metni değişmez.
+- Seçili evlerin Redfin ilan sayfaları açılır (tarayıcı açılır, ev başına ~30 sn): ilan durumu (Active, Sold...), açıklama, vergi, aidat, sel ve iklim bilgisi, emlakçı okunur; durum okunamazsa sebebi yazılır. Aday listesi, seçili ev ve kart metni değişmez.
 - Ev kartı varsa: eksik koordinatlar (Census Geocoder, bulamazsa OpenStreetMap) ve FEMA sel bölgesi evlere eklenir; out\ev_detaylari_XX.md yazılır. "Ev kartlarını topla" bunları her toplamada kendisi yapar, ayrıca ilan sayfasındaki açıklama, vergi, aidat, Redfin'in sel/iklim riski bilgilerini ham olarak kaydeder.
 - FEMA'nın kendi servisine bağlanılamazsa Esri Living Atlas'taki FEMA kopyası kullanılır ve bu, evin kaydına yazılır.
 

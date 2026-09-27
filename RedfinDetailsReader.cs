@@ -3,166 +3,222 @@ using System.Text.RegularExpressions;
 
 namespace FredPull;
 
-/// İlan sayfasındaki ham ayrıntıları (açıklama, emlak vergisi, aidat, Redfin'in FEMA bölgesi ve sel sigortası tahmini,
-/// iklim riski puanları, ilanı veren emlakçı ve ofis) bulur. Redfin'in yanıt yapısı belgelenmediği için alanlar anahtar
-/// adıyla aranır (ör. "taxesDue", "hoaDues", "floodZone"); her değerin bulunduğu JSON yolu Found'a yazılır. Benzer ve yakın
-/// evlerin bölümleri atlanır, önce bu evin kimliğini (propertyId) taşıyan gövdeler okunur. Değer sayfada/yanıtta yazdığı
-/// gibi metin olarak alınır, tahmin edilmez; yapı değişirse hata vermez, alanlar boş kalır.
-/// Not (2026-09-27): alan adları gerçek bir ilan sayfasıyla henüz doğrulanmadı. Toplama sırasında ham yanıtlar
-/// out\redfin_raw\{ST}\ altına yazılır; ilk canlı toplamadan sonra bu dosyalara bakılıp kurallar sıkılaştırılacak.
+/// İlan sayfasındaki ham ayrıntıları okur: ilan durumu, açıklama, emlak vergisi, aidat, Redfin'in FEMA bölgesi ve sel
+/// sigortası tahmini, iklim riski puanları, ilanı veren emlakçı ve ofis. Değerler Redfin'in yazdığı gibi metin olarak
+/// saklanır; hesap ve yorum yapılmaz. Her değerin bulunduğu yer Found'a yazılır. Yapı değişirse hata vermez, alan boş kalır.
+///
+/// Yollar 2026-09-27'de Florida'nın 10 gerçek ilan sayfasının gömülü bloklarından doğrulandı (out\redfin_raw\FL\):
+///   payload.addressSectionInfo.status.displayValue                       → ilan durumu ("Active", "Sold")
+///   payload.mainHouseInfo.mlsStatusDisplay.displayValue                   → ilan durumu (yedek)
+///   payload.mainHouseInfo.marketingRemarks[0].marketingRemark             → açıklama
+///   payload.mainHouseInfo.listingAgents[].agentInfo.agentName / brokerName → emlakçı / ofis
+///   payload.publicRecordsInfo.taxInfo.taxesDue / rollYear                 → emlak vergisi / yılı
+///   payload.publicRecordsInfo.mortgageCalculatorInfo.monthlyHoaDues       → Redfin hesaplayıcısının aylık aidatı
+///   payload.amenitiesInfo.superGroups[].amenityGroups[] "HOA ..." grubu     → MLS aidat alanları (ASSOCIATION_FEE, _FREQUENCY)
+///   payload.floodData.femaZones[] / lowInsurancePrice / highInsurancePrice / floodFactor → sel (riskFactor bloğu)
+///   payload.fireData.fireFactor, heatData.heatFactor, windData.riskFactorScore, airData.riskFactorScore
+/// "payload.homes" taşıyan bloklar (benzer/yakın evler) atlanır. Önceki sürümün anahtar adıyla gezinen okuyucusu kaldırıldı:
+/// asıl bloklarda propertyId olmadığı için onları eliyor, bir sayfada da ortaklık reklamındaki emlak ofisini alıyordu.
 public static class RedfinDetailsReader
 {
-    // bu parçaları içeren anahtarların altı başka evlere ait
-    static readonly string[] OtherHomes = { "similar", "nearby", "comparable", "recentlysold", "comps", "otherhomes", "neighborhood" };
-
-    static readonly HashSet<string> DescriptionKeys = new() { "marketingremark", "listingremarks", "publicremarks", "remarks", "propertydescription" };
-    static readonly HashSet<string> TaxKeys = new() { "taxesdue", "propertytax", "propertytaxes", "annualtax", "taxannualamount", "taxamount" };
-    static readonly HashSet<string> TaxYearKeys = new() { "rollyear", "taxyear", "taxesyear" };
-    static readonly HashSet<string> HoaKeys = new() { "hoadues", "hoadue", "hoafee", "associationfee", "hoaamount" };
-    static readonly HashSet<string> HoaPeriodKeys = new() { "hoaduesfrequency", "hoafeefrequency", "associationfeefrequency", "hoafrequency", "hoaperiod", "hoaduesperiod" };
-    static readonly HashSet<string> FloodZoneKeys = new() { "femazone", "floodzone", "femafloodzone", "fldzone", "floodzonecode" };
-    static readonly HashSet<string> OfficeKeys = new() { "brokername", "listingbrokername", "officename", "listingofficename", "brokeragename" };
-    static readonly Regex ClimateKey = new(@"^(flood|fire|heat|wind)(factor)?(score|rating|risk|level)?$");
-    static readonly Regex PropertyIdInUrl = new(@"/home/(\d+)");
-
     public static RedfinDetails Read(IReadOnlyList<string> bodies, string html, string url)
     {
         var d = new RedfinDetails { ReadAt = DateTime.Now };
         try
         {
-            var docs = new List<(string Text, JsonDocument Doc)>();
             foreach (var b in bodies)
             {
                 var t = b.TrimStart();
                 if (t.StartsWith("{}&&", StringComparison.Ordinal)) t = t[4..];
-                try { docs.Add((t, JsonDocument.Parse(t))); }
-                catch (JsonException) { }
+                if (!t.StartsWith('{')) continue;
+                JsonDocument doc;
+                try { doc = JsonDocument.Parse(t); }
+                catch (JsonException) { continue; }
+                using (doc)
+                {
+                    if (!doc.RootElement.TryGetProperty("payload", out var p) || p.ValueKind != JsonValueKind.Object) continue;
+                    if (p.TryGetProperty("homes", out _)) continue;           // benzer / yakın evler listesi
+                    AddressSection(p, d);
+                    MainHouse(p, d);
+                    PublicRecords(p, d);
+                    Amenities(p, d);
+                    RiskFactor(p, d);
+                }
             }
-            var pid = PropertyIdInUrl.Match(url) is { Success: true } m ? m.Groups[1].Value : null;
-            var own = pid == null ? docs : docs.Where(x => x.Text.Contains($"\"propertyId\":{pid}") || x.Text.Contains($"\"propertyId\":\"{pid}\"")).ToList();
-            foreach (var (_, doc) in own.Count > 0 ? own : docs) Walk(doc.RootElement, "", d);
-            foreach (var (_, doc) in docs) doc.Dispose();
             FromPageText(html, d);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException) { }   // yapı değişirse boş kalır
         return d;
     }
 
-    static void Walk(JsonElement e, string path, RedfinDetails d)
+    // ---------- gömülü bloklar ----------
+
+    static JsonElement? Get(JsonElement e, params string[] path)
     {
-        switch (e.ValueKind)
+        foreach (var k in path)
         {
-            case JsonValueKind.Object:
-                foreach (var p in e.EnumerateObject())
-                {
-                    var k = p.Name.ToLowerInvariant();
-                    if (OtherHomes.Any(o => k.Contains(o))) continue;
-                    var sub = path.Length == 0 ? p.Name : path + "." + p.Name;
-                    if (p.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array) Walk(p.Value, sub, d);
-                    else Leaf(k, p.Value, sub, d);
-                }
-                break;
-            case JsonValueKind.Array:
-                int i = 0;
-                foreach (var x in e.EnumerateArray()) Walk(x, $"{path}[{i++}]", d);
-                break;
+            if (e.ValueKind != JsonValueKind.Object || !e.TryGetProperty(k, out e)) return null;
         }
+        return e;
     }
 
-    static string? Scalar(JsonElement v) => v.ValueKind switch
+    static string? Scalar(JsonElement? v) => v?.ValueKind switch
     {
-        JsonValueKind.String => v.GetString()?.Trim(),
-        JsonValueKind.Number => v.GetRawText(),
+        JsonValueKind.String => v.Value.GetString()?.Trim() is { Length: > 0 } s ? s : null,
+        JsonValueKind.Number => v.Value.GetRawText(),
         _ => null,
     };
 
-    static bool HasDigit(string s) => s.Any(char.IsDigit);
-
-    static void Leaf(string k, JsonElement v, string path, RedfinDetails d)
+    static void Set(RedfinDetails d, string field, string? value, string path, Func<string?> current, Action<string> set)
     {
-        var s = Scalar(v);
-        if (string.IsNullOrEmpty(s)) return;
-        var lpath = path.ToLowerInvariant();
-
-        void Set(string field, Func<string?> get, Action<string> set)
-        {
-            if (get() != null) return;
-            set(s);
-            d.Found[field] = path;
-        }
-
-        if (DescriptionKeys.Contains(k) && v.ValueKind == JsonValueKind.String && s.Length >= 30)
-            Set("Description", () => d.Description, x => d.Description = x);
-        else if (TaxKeys.Contains(k) && HasDigit(s))
-            Set("PropertyTax", () => d.PropertyTax, x => d.PropertyTax = x);
-        else if (TaxYearKeys.Contains(k) && int.TryParse(s, out var y) && y is >= 1990 and <= 2100)
-            Set("PropertyTaxYear", () => d.PropertyTaxYear, x => d.PropertyTaxYear = x);
-        else if (HoaKeys.Contains(k) && HasDigit(s))
-            Set("Hoa", () => d.Hoa, x => d.Hoa = x);
-        else if (HoaPeriodKeys.Contains(k))
-            Set("HoaPeriod", () => d.HoaPeriod, x => d.HoaPeriod = x);
-        else if (FloodZoneKeys.Contains(k) && s.Length <= 12)
-            Set("FloodZone", () => d.FloodZone, x => d.FloodZone = x);
-        else if (k.Contains("floodinsurance") && (v.ValueKind == JsonValueKind.String || HasDigit(s)))
-        {
-            if (d.FloodInsuranceEstimate == null) { d.FloodInsuranceEstimate = s; d.Found["FloodInsuranceEstimate"] = path; }
-            else if (d.Found.TryGetValue("FloodInsuranceEstimate", out var first) && ParentOf(first) == ParentOf(path)
-                     && !d.FloodInsuranceEstimate.Contains('–'))
-            {
-                d.FloodInsuranceEstimate += "–" + s;   // aynı nesnedeki alt/üst sınır: "1737–8500"
-                d.Found["FloodInsuranceEstimate"] += " + " + path;
-            }
-        }
-        else if (ClimateKey.Match(k) is { Success: true } cm && (cm.Groups[2].Success || cm.Groups[3].Success))
-        {
-            var kind = cm.Groups[1].Value;
-            if (!d.ClimateRisk.ContainsKey(kind)) { d.ClimateRisk[kind] = s; d.Found["ClimateRisk." + kind] = path; }
-        }
-        else if (lpath.Contains("listingagent") && k is "agentname" or "name" or "fullname" && v.ValueKind == JsonValueKind.String)
-            Set("AgentName", () => d.AgentName, x => d.AgentName = x);
-        else if (OfficeKeys.Contains(k) && v.ValueKind == JsonValueKind.String)
-            Set("OfficeName", () => d.OfficeName, x => d.OfficeName = x);
+        if (value == null || current() != null) return;
+        set(value);
+        d.Found[field] = path;
     }
 
-    static string ParentOf(string path) => path.Contains('.') ? path[..path.LastIndexOf('.')] : "";
+    static void AddressSection(JsonElement p, RedfinDetails d) =>
+        Set(d, "ListingStatus", Scalar(Get(p, "addressSectionInfo", "status", "displayValue")),
+            "payload.addressSectionInfo.status.displayValue", () => d.ListingStatus, x => d.ListingStatus = x);
+
+    static void MainHouse(JsonElement p, RedfinDetails d)
+    {
+        if (Get(p, "mainHouseInfo") is not { ValueKind: JsonValueKind.Object } m) return;
+        Set(d, "ListingStatus", Scalar(Get(m, "mlsStatusDisplay", "displayValue")),
+            "payload.mainHouseInfo.mlsStatusDisplay.displayValue", () => d.ListingStatus, x => d.ListingStatus = x);
+        if (Get(m, "marketingRemarks") is { ValueKind: JsonValueKind.Array } rem && rem.GetArrayLength() > 0)
+            Set(d, "Description", Scalar(Get(rem[0], "marketingRemark")),
+                "payload.mainHouseInfo.marketingRemarks[0].marketingRemark", () => d.Description, x => d.Description = x);
+        if (Get(m, "listingAgents") is { ValueKind: JsonValueKind.Array } agents)
+        {
+            var names = agents.EnumerateArray().Select(a => Scalar(Get(a, "agentInfo", "agentName"))).OfType<string>().Distinct().ToList();
+            var offices = agents.EnumerateArray().Select(a => Scalar(Get(a, "brokerName"))).OfType<string>().Distinct().ToList();
+            Set(d, "AgentName", names.Count > 0 ? string.Join("; ", names) : null,
+                "payload.mainHouseInfo.listingAgents[].agentInfo.agentName", () => d.AgentName, x => d.AgentName = x);
+            Set(d, "OfficeName", offices.Count > 0 ? string.Join("; ", offices) : null,
+                "payload.mainHouseInfo.listingAgents[].brokerName", () => d.OfficeName, x => d.OfficeName = x);
+        }
+    }
+
+    static void PublicRecords(JsonElement p, RedfinDetails d)
+    {
+        if (Get(p, "publicRecordsInfo") is not { ValueKind: JsonValueKind.Object } pr) return;
+        Set(d, "PropertyTax", Scalar(Get(pr, "taxInfo", "taxesDue")),
+            "payload.publicRecordsInfo.taxInfo.taxesDue", () => d.PropertyTax, x => d.PropertyTax = x);
+        Set(d, "PropertyTaxYear", Scalar(Get(pr, "taxInfo", "rollYear")),
+            "payload.publicRecordsInfo.taxInfo.rollYear", () => d.PropertyTaxYear, x => d.PropertyTaxYear = x);
+        Set(d, "HoaMonthlyRedfin", Scalar(Get(pr, "mortgageCalculatorInfo", "monthlyHoaDues")),
+            "payload.publicRecordsInfo.mortgageCalculatorInfo.monthlyHoaDues", () => d.HoaMonthlyRedfin, x => d.HoaMonthlyRedfin = x);
+    }
+
+    /// İlanın MLS alanlarındaki aidat grubu ("HOA Information", "Homeowners Association Information"). Grup olduğu gibi
+    /// HoaAmenities'e yazılır; tutar ve dönem MLS'in kendi alanlarından: ASSOCIATION_FEE + ASSOCIATION_FEE_FREQUENCY, yoksa
+    /// Stellar MLS'in MFR_MONTHLY_HOAAMOUNT'ı (dönem = alan adı).
+    static void Amenities(JsonElement p, RedfinDetails d)
+    {
+        if (Get(p, "amenitiesInfo", "superGroups") is not { ValueKind: JsonValueKind.Array } supers) return;
+        foreach (var sg in supers.EnumerateArray())
+        {
+            if (Get(sg, "amenityGroups") is not { ValueKind: JsonValueKind.Array } groups) continue;
+            foreach (var g in groups.EnumerateArray())
+            {
+                var title = Scalar(Get(g, "groupTitle")) ?? "";
+                if (!title.Contains("HOA", StringComparison.OrdinalIgnoreCase) && !title.Contains("Association", StringComparison.OrdinalIgnoreCase)) continue;
+                if (Get(g, "amenityEntries") is not { ValueKind: JsonValueKind.Array } entries) continue;
+                var fields = new List<(string Ref, string Value)>();
+                foreach (var en in entries.EnumerateArray())
+                {
+                    var name = Scalar(Get(en, "referenceName")) ?? Scalar(Get(en, "amenityName"));
+                    var vals = Get(en, "amenityValues") is { ValueKind: JsonValueKind.Array } va
+                        ? string.Join(", ", va.EnumerateArray().Select(x => Scalar(x)).OfType<string>()) : "";
+                    if (name != null) fields.Add((name, vals));
+                }
+                if (fields.Count == 0) continue;
+                var path = $"payload.amenitiesInfo \"{title}\"";
+                Set(d, "HoaAmenities", string.Join("; ", fields.Select(f => $"{f.Ref}={f.Value}")), path, () => d.HoaAmenities, x => d.HoaAmenities = x);
+                string? F(string r) => fields.FirstOrDefault(f => f.Ref == r).Value is { Length: > 0 } v ? v : null;
+                if (F("ASSOCIATION_FEE") is { } fee)
+                {
+                    Set(d, "Hoa", fee, path + " ASSOCIATION_FEE", () => d.Hoa, x => d.Hoa = x);
+                    Set(d, "HoaPeriod", F("ASSOCIATION_FEE_FREQUENCY"), path + " ASSOCIATION_FEE_FREQUENCY", () => d.HoaPeriod, x => d.HoaPeriod = x);
+                }
+                else if (F("MFR_MONTHLY_HOAAMOUNT") is { } monthly)
+                {
+                    Set(d, "Hoa", monthly, path + " MFR_MONTHLY_HOAAMOUNT", () => d.Hoa, x => d.Hoa = x);
+                    Set(d, "HoaPeriod", "MFR_MONTHLY_HOAAMOUNT (aylık)", path + " MFR_MONTHLY_HOAAMOUNT", () => d.HoaPeriod, x => d.HoaPeriod = x);
+                }
+            }
+        }
+    }
+
+    /// First Street / Redfin iklim bloğu (riskFactor): FEMA bölgesi (Redfin'e göre MassiveCert tahmini), yıllık sel sigortası
+    /// aralığı ve puanlar.
+    static void RiskFactor(JsonElement p, RedfinDetails d)
+    {
+        if (Get(p, "floodData") is not { ValueKind: JsonValueKind.Object } fd) return;
+        if (Get(fd, "femaZones") is { ValueKind: JsonValueKind.Array } zones)
+        {
+            var z = zones.EnumerateArray().Select(x => Scalar(x)).OfType<string>().ToList();
+            Set(d, "FloodZone", z.Count > 0 ? string.Join(", ", z) : null, "payload.floodData.femaZones", () => d.FloodZone, x => d.FloodZone = x);
+        }
+        string? lo = Scalar(Get(fd, "lowInsurancePrice")), hi = Scalar(Get(fd, "highInsurancePrice"));
+        Set(d, "FloodInsuranceEstimate", lo != null && hi != null ? $"{lo}–{hi}" : lo ?? hi,
+            "payload.floodData.lowInsurancePrice–highInsurancePrice", () => d.FloodInsuranceEstimate, x => d.FloodInsuranceEstimate = x);
+        foreach (var (kind, path) in new[]
+                 {
+                     ("flood", new[] { "floodData", "floodFactor" }), ("fire", new[] { "fireData", "fireFactor" }),
+                     ("heat", new[] { "heatData", "heatFactor" }), ("wind", new[] { "windData", "riskFactorScore" }),
+                     ("air", new[] { "airData", "riskFactorScore" }),
+                 })
+            if (!d.ClimateRisk.ContainsKey(kind) && Scalar(Get(p, path)) is { } v)
+            {
+                d.ClimateRisk[kind] = v;
+                d.Found["ClimateRisk." + kind] = "payload." + string.Join(".", path);
+            }
+    }
+
+    // ---------- sayfanın görünen metni (bloklar yoksa) ----------
 
     static readonly Regex Tags = new(@"<script[\s\S]*?</script>|<style[\s\S]*?</style>|<[^>]+>");
-    static readonly Regex FemaZoneText = new(@"FEMA\s*(?:Flood\s*)?Zone[:\s]+([A-Z]{1,3}\d{0,2})\b", RegexOptions.IgnoreCase);
-    static readonly Regex InsuranceText = new(@"flood insurance[\s\S]{0,300}?(\$[\d,]+\s*[–-]\s*\$[\d,]+)", RegexOptions.IgnoreCase);
-    static readonly Regex HoaText = new(@"HOA\s*Dues[:\s]*(\$[\d,]+)(?:\s*/\s*(month|mo|year|yr|quarter|qtr))?", RegexOptions.IgnoreCase);
-
     static readonly Regex Spaces = new(@"\s+");
     static readonly Regex RemarksBlock = new(@"<div[^>]*\bid=""marketing-remarks-scroll""[^>]*>([\s\S]*?)</div>", RegexOptions.IgnoreCase);
+    static readonly Regex FemaZoneText = new(@"FEMA\s+zone\s+([A-Z]{1,3}\d{0,2}(?:\s*\((?:un)?shaded\))?)", RegexOptions.IgnoreCase);
+    static readonly Regex InsuranceText = new(@"Insurance for .{1,120}? ranges from \$([\d,]+) to \$([\d,]+) per year", RegexOptions.IgnoreCase);
+    static readonly Regex ListedByText = new(@"Listed by (.+?) • (.+?) (?:Contact:|Listing updated:|$)");
+    static readonly Regex TaxTableText = new(@"Year Property tax Land \+ Additions Assessment\*? (\d{4}) \$([\d,]+)");
+    static readonly Regex FactorText = new(@"(\d{1,2})/10 (Flood|Fire|Heat|Wind|Air) Factor");
 
     /// Sayfanın görünen metni (script/style ve etiketler atılır, boşluklar teke iner).
     public static string PageText(string html) =>
         html.Length == 0 ? "" : Spaces.Replace(System.Net.WebUtility.HtmlDecode(Tags.Replace(html, " ")), " ").Trim();
 
-    /// JSON'da bulunamayanlar için sayfanın görünen metni (sayfada yazdığı gibi).
+    /// Gömülü bloklarda bulunamayanlar sayfada yazdığı gibi. Aidat için ödeme hesaplayıcısındaki "HOA dues $0" kullanılmaz:
+    /// veri yokken de 0 gösteriyor.
     static void FromPageText(string html, RedfinDetails d)
     {
+        if (html.Length == 0) return;
         if (d.Description == null && RemarksBlock.Match(html) is { Success: true } rb && PageText(rb.Groups[1].Value) is { Length: >= 30 } remarks)
-        {
-            d.Description = remarks;
-            d.Found["Description"] = "sayfa: #marketing-remarks-scroll";
-        }
-        if (html.Length == 0 || (d.FloodZone != null && d.FloodInsuranceEstimate != null && d.Hoa != null)) return;
+            Set(d, "Description", remarks, "sayfa: #marketing-remarks-scroll", () => d.Description, x => d.Description = x);
+        if (d.FloodZone != null && d.FloodInsuranceEstimate != null && d.AgentName != null && d.PropertyTax != null && d.ClimateRisk.Count > 0) return;
         var text = PageText(html);
-        if (d.FloodZone == null && FemaZoneText.Match(text) is { Success: true } z)
+        if (FemaZoneText.Match(text) is { Success: true } z)
+            Set(d, "FloodZone", z.Groups[1].Value, "sayfa metni: " + z.Value, () => d.FloodZone, x => d.FloodZone = x);
+        if (InsuranceText.Match(text) is { Success: true } ins)
+            Set(d, "FloodInsuranceEstimate", $"{ins.Groups[1].Value.Replace(",", "")}–{ins.Groups[2].Value.Replace(",", "")}",
+                "sayfa metni: " + ins.Value, () => d.FloodInsuranceEstimate, x => d.FloodInsuranceEstimate = x);
+        if (ListedByText.Match(text) is { Success: true } lb)
         {
-            d.FloodZone = z.Groups[1].Value;
-            d.Found["FloodZone"] = "sayfa metni: " + z.Value.Trim();
+            Set(d, "AgentName", lb.Groups[1].Value.Trim(), "sayfa metni: Listed by", () => d.AgentName, x => d.AgentName = x);
+            Set(d, "OfficeName", lb.Groups[2].Value.Trim(), "sayfa metni: Listed by", () => d.OfficeName, x => d.OfficeName = x);
         }
-        if (d.FloodInsuranceEstimate == null && InsuranceText.Match(text) is { Success: true } ins)
+        if (TaxTableText.Match(text) is { Success: true } tax)
         {
-            d.FloodInsuranceEstimate = ins.Groups[1].Value;
-            d.Found["FloodInsuranceEstimate"] = "sayfa metni";
+            Set(d, "PropertyTax", tax.Groups[2].Value.Replace(",", ""), "sayfa metni: vergi tablosu", () => d.PropertyTax, x => d.PropertyTax = x);
+            Set(d, "PropertyTaxYear", tax.Groups[1].Value, "sayfa metni: vergi tablosu", () => d.PropertyTaxYear, x => d.PropertyTaxYear = x);
         }
-        if (d.Hoa == null && HoaText.Match(text) is { Success: true } h)
+        foreach (Match f in FactorText.Matches(text))
         {
-            d.Hoa = h.Groups[1].Value;
-            if (h.Groups[2].Success && d.HoaPeriod == null) d.HoaPeriod = h.Groups[2].Value;
-            d.Found["Hoa"] = "sayfa metni: " + h.Value.Trim();
+            var kind = f.Groups[2].Value.ToLowerInvariant();
+            if (d.ClimateRisk.TryAdd(kind, f.Groups[1].Value)) d.Found["ClimateRisk." + kind] = "sayfa metni: " + f.Value;
         }
     }
 }

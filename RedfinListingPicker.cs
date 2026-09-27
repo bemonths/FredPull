@@ -21,7 +21,15 @@ public sealed class RedfinListingPicker : IAsyncDisposable
     /// Rental: kira ilanı kaydı (satış hikâyesine katılmaz). Raw: Redfin'in ham kaydı (JSON'a teşhis için yazılır).
     sealed record HistoryEvent(DateOnly Date, string Description, int? Price, bool Rental, JsonElement Raw);
     /// Captured: yakalanan yanıt gövdeleri, Urls aynı sırayla adresleri.
-    sealed record PageData(string Html, List<string> Captured, List<string> Urls);
+    /// Status/ResponseUrl: ana belge yanıtı (yönlendirmeden sonra); FinalUrl: sekmenin son adresi; ContentError: HTML okunamadıysa.
+    sealed record PageData(string Html, List<string> Captured, List<string> Urls)
+    {
+        public int? Status { get; init; }
+        public string? ResponseUrl { get; init; }
+        public string FinalUrl { get; init; } = "";
+        public string Title { get; init; } = "";
+        public string? ContentError { get; init; }
+    }
 
     /// Redfin iki denemede de engelledi: ilçe atlanır.
     public sealed class BlockedException(string message) : Exception(message);
@@ -231,6 +239,7 @@ public sealed class RedfinListingPicker : IAsyncDisposable
                 FillFromListingPage(c, page.Html);      // aynı sayfadan fotoğraf adresleri ve (eksikse) konum
                 // ek veri katmanı: aynı ziyaretteki ham ayrıntılar; ham yanıtlar alanları doğrulamak için diske
                 c.Redfin = RedfinDetailsReader.Read(Bodies(page), page.Html, c.Url);
+                SetListingStatus(c, c.Redfin, page);
                 SaveRaw(county.State, county.Fips, c, page);
             }
             catch (OperationCanceledException) { throw; }
@@ -489,11 +498,35 @@ public sealed class RedfinListingPicker : IAsyncDisposable
         SaveRaw(state, fips, c, page);
         if ((c.Lat == null || c.Lng == null) && ExtractLatLng(page.Html) is { } ll) (c.Lat, c.Lng, c.LatLngSource) = (ll.Lat, ll.Lng, "redfin");
         var d = RedfinDetailsReader.Read(Bodies(page), page.Html, c.Url);
-        _log($"{c.Street}: ilan ayrıntıları {d.Found.Count} alan ({string.Join(", ", d.Found.Keys)}) — {c.Url}");
+        SetListingStatus(c, d, page);
+        _log($"{c.Street}: ilan durumu {c.ListingStatus ?? "okunamadı (" + c.ListingStatusNote + ")"}; ayrıntılar {d.Found.Count} alan ({string.Join(", ", d.Found.Keys)}) — {c.Url}");
         if (d.Found.Count == 0) return false;
         c.Redfin = d;
         return true;
     }
+
+    /// İlan durumu (Redfin'in gösterdiği gibi) ve okunduğu zaman; okunamadıysa sayfanın ne döndürdüğü (HTTP durumu,
+    /// yönlendirme, başlık, boş içerik) sebep olarak yazılır.
+    static void SetListingStatus(HouseCandidate c, RedfinDetails d, PageData page)
+    {
+        c.ListingStatusAt = DateTime.Now;
+        c.ListingStatus = d.ListingStatus;
+        c.ListingStatusNote = d.ListingStatus != null ? null : PageProblem(c.Url, page);
+    }
+
+    static string PageProblem(string url, PageData page)
+    {
+        var parts = new List<string> { page.Status is int s ? $"HTTP {s}" : "HTTP yanıtı yok" };
+        if (page.ResponseUrl is { } ru && !SameUrl(ru, url)) parts.Add($"yönlendirme: {ru}");
+        if (page.FinalUrl.Length > 0 && !SameUrl(page.FinalUrl, url) && page.FinalUrl != page.ResponseUrl) parts.Add($"sekmenin son adresi: {page.FinalUrl}");
+        if (page.Title.Length > 0) parts.Add($"başlık: \"{page.Title}\"");
+        if (page.Html.Length == 0) parts.Add("sayfa içeriği okunamadı" + (page.ContentError != null ? $" ({page.ContentError})" : ""));
+        else if (page.Captured.Count == 0 && !EmbeddedBlocks(page.Html).Any()) parts.Add("sayfada ilan verisi yok");
+        else parts.Add("ilan verisinde durum alanı yok");
+        return string.Join("; ", parts);
+    }
+
+    static bool SameUrl(string a, string b) => string.Equals(a.TrimEnd('/'), b.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
 
     /// İlan sayfasının yakalanan yanıtları ve gömülü blokları: out\redfin_raw\{ST}\{fips}_{sokak}.json. Ham ayrıntı
     /// alanlarının (RedfinDetailsReader) nerede durduğunu gerçek sayfalardan doğrulamak için; hata yazma işini durdurmaz.
@@ -511,6 +544,11 @@ public sealed class RedfinListingPicker : IAsyncDisposable
                 responses = page.Urls.Zip(page.Captured, (u, b) => new { url = u, body = b }).ToList(),
                 embedded = EmbeddedBlocks(page.Html).ToList(),
                 page_text = RedfinDetailsReader.PageText(page.Html),   // kaydırmadan sonra görünen metin
+                http_status = page.Status,
+                response_url = page.ResponseUrl,
+                final_url = page.FinalUrl,
+                title = page.Title,
+                content_error = page.ContentError,
             };
             File.WriteAllText(Path.Combine(dir, $"{fips}_{slug}.json"), JsonSerializer.Serialize(raw), new UTF8Encoding(false));
         }
@@ -873,7 +911,20 @@ public sealed class RedfinListingPicker : IAsyncDisposable
                     await ScrollAsync(ct);
                     data = Snapshot(await SafeAsync(() => _page.ContentAsync()), pending);
                 }
-                return data;
+                // HTML hiç okunamadıysa (sayfa hâlâ yönleniyor olabilir) yüklenmeyi bekleyip bir kez daha, hatayı tutarak
+                string? contentError = null;
+                if (data.Html.Length == 0)
+                {
+                    try { await _page.WaitForLoadStateAsync(LoadState.Load, new PageWaitForLoadStateOptions { Timeout = 10_000 }); }
+                    catch (Exception ex) when (ex is TimeoutException or PlaywrightException) { }
+                    try { data = Snapshot(await _page.ContentAsync(), pending); }
+                    catch (PlaywrightException ex) { contentError = FirstLine(ex.Message); }
+                }
+                return data with
+                {
+                    Status = main?.Status, FinalUrl = _page.Url, Title = await SafeAsync(() => _page.TitleAsync()),
+                    ResponseUrl = main?.Url, ContentError = contentError,
+                };
             }
             finally { _page.Response -= OnResponse; }
         }

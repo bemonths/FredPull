@@ -348,6 +348,12 @@ public partial class MainForm : Form
             var sb = new StringBuilder($"{StateName(st)} ek verileri ({sw.Elapsed:m\\:ss}) — out\\ek_{st}\\\n\n");
             foreach (var en in entries)
                 sb.AppendLine(en.Error != null ? $"✗ {en.File}: {en.Error}" : $"✓ {en.File}: {en.Rows} satır{(en.Period.Length > 0 ? $" ({en.Period})" : "")}");
+            var statuses = entries.SelectMany(en => en.Details.Where(kv => kv.Key.StartsWith("durum: ", StringComparison.Ordinal))).ToList();
+            if (statuses.Count > 0)
+            {
+                sb.AppendLine("\nSeçili evlerin ilan durumu (Redfin):");
+                foreach (var kv in statuses) sb.AppendLine($"  {kv.Key["durum: ".Length..]}: {kv.Value}");
+            }
             var warns = entries.SelectMany(en => en.Warnings.Select(w => $"{en.File}: {w}")).ToList();
             if (warns.Count > 0)
             {
@@ -388,8 +394,11 @@ public partial class MainForm : Form
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     if (picker.Closed) throw new InvalidOperationException("Tarayıcı penceresi kapatıldı; ilan ayrıntıları durdu.");
+                    (h.ListingStatus, h.ListingStatusAt, h.ListingStatusNote) = (null, DateTime.Now, "sayfa açılamadı: " + ex.Message.Split('\n')[0]);
                     e.Warnings.Add($"{card.County}: {h.Street} ilan sayfası açılamadı ({ex.Message.Split('\n')[0]}); ev atlandı.");
                 }
+                // ilan durumu manifest'te de görünsün (okunamadıysa sebebiyle)
+                e.Details[$"durum: {card.County} ({h.Street})"] = h.ListingStatus ?? "okunamadı — " + h.ListingStatusNote;
             }
         }
         finally

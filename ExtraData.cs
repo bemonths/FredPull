@@ -25,7 +25,8 @@ public sealed class ExtraData : IDisposable
     {
         _log = log;
         _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("FredPull/1.0");
+        // tanımlayıcı User-Agent (OpenStreetMap Nominatim'in kullanım kuralı)
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("FredPull/1.0 (+https://github.com/bemonths/FredPull; county housing raw-data downloader)");
     }
 
     public void Dispose() => _http.Dispose();
@@ -205,22 +206,47 @@ public sealed class ExtraData : IDisposable
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException) { e.Warnings.Add("CMS güncelleme tarihi okunamadı: " + ex.Message); }
 
+        // Koordinat üç adımda; her satıra kaynağı yazılır (coord_source): census → census_retry (sadeleştirilmiş adres) → osm
         status.Report($"Hastaneler: {rows.Count} adres koordinata çevriliyor (Census Geocoder)");
-        var input = rows.Select((r, i) => (Id: i.ToString(Inv), Street: r.GetValueOrDefault("address", ""), City: r.GetValueOrDefault("citytown", ""),
-            State: r.GetValueOrDefault("state", ""), Zip: r.GetValueOrDefault("zip_code", ""))).ToList();
-        var geo = await GeocodeAsync(input, ct);
-        int matched = geo.Values.Count(g => g.Lat.Length > 0);
-        var rate = rows.Count == 0 ? 0 : 100.0 * matched / rows.Count;
-        _log($"hastaneler: koordinat eşleşmesi {matched}/{rows.Count} (%{rate:0.0})");
-        e.Details["koordinat_eşleşmesi"] = $"{matched}/{rows.Count}";
-        e.Details["koordinat_kaynağı"] = GeocoderBatch;
+        string V(int i, string col) => rows[i].GetValueOrDefault(col, "");
+        var coord = new (string Lat, string Lng, string Match, string Source)[rows.Count];
+        var geo = await GeocodeAsync(rows.Select((r, i) => (i.ToString(Inv), V(i, "address"), V(i, "citytown"), V(i, "state"), V(i, "zip_code"))).ToList(), ct);
+        for (int i = 0; i < rows.Count; i++)
+            coord[i] = geo.TryGetValue(i.ToString(Inv), out var g) ? (g.Lat, g.Lng, g.Match, g.Lat.Length > 0 ? "census" : "") : ("", "", "yanıt yok", "");
+        int census = coord.Count(c => c.Source == "census");
 
-        WriteCsv(Path.Combine(dir, e.File), columns.Concat(new[] { "lat", "lng", "geocode_match" }),
-            rows.Select((r, i) =>
-            {
-                (string Lat, string Lng, string Match) g = geo.TryGetValue(i.ToString(Inv), out var found) ? found : ("", "", "yanıt yok");
-                return columns.Select(c => (string?)r.GetValueOrDefault(c, "")).Concat(new[] { g.Lat, g.Lng, g.Match });
-            }));
+        var retry = Enumerable.Range(0, rows.Count).Where(i => coord[i].Lat.Length == 0).ToList();
+        status.Report($"Hastaneler: {retry.Count} adres sadeleştirilip yeniden deneniyor");
+        var geo2 = await GeocodeAsync(retry.Select(i => (i.ToString(Inv), SimplifyAddress(V(i, "address")), V(i, "citytown"), V(i, "state"), V(i, "zip_code"))).ToList(), ct);
+        foreach (var i in retry)
+            if (geo2.TryGetValue(i.ToString(Inv), out var g) && g.Lat.Length > 0) coord[i] = (g.Lat, g.Lng, g.Match, "census_retry");
+        int censusRetry = coord.Count(c => c.Source == "census_retry");
+
+        var osmTodo = Enumerable.Range(0, rows.Count).Where(i => coord[i].Lat.Length == 0).ToList();
+        int n = 0;
+        foreach (var i in osmTodo)
+        {
+            status.Report($"Hastaneler: OpenStreetMap {++n}/{osmTodo.Count} — {V(i, "facility_name")}");
+            if (await NominatimHospitalAsync(V(i, "facility_name"), V(i, "citytown"), V(i, "state"), ct) is { } o)
+                coord[i] = (o.Lat.ToString(Inv), o.Lng.ToString(Inv), coord[i].Match, "osm");
+        }
+        int osm = coord.Count(c => c.Source == "osm");
+        int matched = census + censusRetry + osm;
+        var rate = rows.Count == 0 ? 0 : 100.0 * matched / rows.Count;
+        _log($"hastaneler: koordinat {matched}/{rows.Count} (%{rate:0.0}) — census {census}, census_retry {censusRetry}, osm {osm}");
+        foreach (var s in states)
+        {
+            var missing = Enumerable.Range(0, rows.Count).Where(i => V(i, "state") == s && coord[i].Lat.Length == 0).Select(i => V(i, "facility_name")).ToList();
+            _log($"hastaneler: {s} koordinatsız {missing.Count}{(missing.Count > 0 ? ": " + string.Join(", ", missing) : "")}");
+            e.Details[$"koordinatsız_{s}"] = missing.Count.ToString(Inv);
+        }
+        e.Details["koordinat_eşleşmesi"] = $"{matched}/{rows.Count}";
+        e.Details["koordinat_kaynakları"] = $"census {census}, census_retry {censusRetry}, osm {osm}";
+        e.Details["koordinat_servisleri"] = $"census / census_retry: {GeocoderBatch}; osm: {Nominatim}";
+
+        WriteCsv(Path.Combine(dir, e.File), columns.Concat(new[] { "lat", "lng", "geocode_match", "coord_source" }),
+            rows.Select((r, i) => columns.Select(c => (string?)r.GetValueOrDefault(c, ""))
+                .Concat(new[] { coord[i].Lat, coord[i].Lng, coord[i].Match, coord[i].Source })));
         e.Rows = rows.Count;
         e.Period = e.Details.TryGetValue("cms_modified", out var mod) ? $"CMS veri kümesi güncellemesi {mod}" : "";
         e.Details["eyaletler"] = string.Join(", ", states);
@@ -228,6 +254,20 @@ public sealed class ExtraData : IDisposable
     }
 
     static string Short(string s) => s.Length > 200 ? s[..200] + "…" : s;
+
+    static readonly System.Text.RegularExpressions.Regex PoBox = new(@"[,\s]+(?:P\.?\s*O\.?\s*BOX|POST OFFICE BOX|BOX)\s+\d[\w-]*.*$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    static readonly System.Text.RegularExpressions.Regex UnitPart = new(@"[,\s]+(?:(?:SUITE|STE|BLDG|BUILDING|FLOOR|FLR|UNIT|ROOM|RM|APT)\b|#)\s*[\w-]+",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// Census'un eşleştiremediği adres için ikinci deneme: posta kutusu, bina/süit/kat/oda bilgileri ve virgüller çıkarılır
+    /// ("707 OLD DALTON ELLIJAY ROAD, PO BOX 1406" → "707 OLD DALTON ELLIJAY ROAD", "1364 CLIFTON ROAD, NE" → "1364 CLIFTON ROAD NE").
+    public static string SimplifyAddress(string street)
+    {
+        var s = PoBox.Replace(street, "");
+        s = UnitPart.Replace(s, "");
+        return System.Text.RegularExpressions.Regex.Replace(s.Replace(",", " "), @"\s+", " ").Trim();
+    }
 
     // ---------- Census Geocoder (toplu adres) ----------
 
@@ -278,31 +318,60 @@ public sealed class ExtraData : IDisposable
     const string Nominatim = "https://nominatim.openstreetmap.org/search";
     DateTime _lastNominatim = DateTime.MinValue;
 
-    /// OpenStreetMap Nominatim, tek adres. Kullanım kuralı saniyede en çok bir istek; bu yüzden yalnızca Census'un bulamadığı
-    /// birkaç ev adresi için kullanılır. place_rank 30 = bina/adres noktası; daha kaba sonuç (sokak, mahalle) kabul edilmez.
-    public async Task<(double Lat, double Lng)?> NominatimAsync(string street, string city, string state, string zip, CancellationToken ct)
+    /// OpenStreetMap Nominatim, tek sorgu: ilk 5 sonuçtan koşulu sağlayan ilki (addressdetails ile; sıralama değişebildiği için
+    /// yalnız ilk sonuca bakılmaz). Kullanım kuralı: saniyede en çok bir istek ve uygulamayı tanıtan User-Agent (HttpClient'ın
+    /// UserAgent'ı); bu yüzden yalnızca Census'un bulamadıkları için kullanılır.
+    async Task<JsonElement?> NominatimFirstAsync(string query, Func<JsonElement, bool> accept, CancellationToken ct)
     {
         var wait = _lastNominatim.AddMilliseconds(1100) - DateTime.Now;
         if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
         _lastNominatim = DateTime.Now;
-        var q = Uri.EscapeDataString($"{street}, {city}, {state}");
         try
         {
-            var (code, body) = await GetAsync($"{Nominatim}?format=jsonv2&countrycodes=us&limit=1&q={q}", ct);
-            if (code != 200) { _log($"nominatim: HTTP {code} ({street})"); return null; }
+            var (code, body) = await GetAsync($"{Nominatim}?format=jsonv2&countrycodes=us&limit=5&addressdetails=1&q={Uri.EscapeDataString(query)}", ct);
+            if (code != 200) { _log($"nominatim: HTTP {code} ({query})"); return null; }
             using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.GetArrayLength() == 0) return null;
-            var r = doc.RootElement[0];
-            if (!r.TryGetProperty("place_rank", out var rank) || rank.GetInt32() < 30) return null;
-            if (double.TryParse(r.GetProperty("lat").GetString(), NumberStyles.Float, Inv, out var la)
-                && double.TryParse(r.GetProperty("lon").GetString(), NumberStyles.Float, Inv, out var lo))
-                return (la, lo);
+            foreach (var r in doc.RootElement.EnumerateArray())
+                if (accept(r)) return r.Clone();
+            return null;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
-            _log($"nominatim: {ex.Message} ({street})");
+            _log($"nominatim: {ex.Message} ({query})");
+            return null;
         }
-        return null;
+    }
+
+    static (double Lat, double Lng)? LatLon(JsonElement r) =>
+        r.TryGetProperty("lat", out var a) && r.TryGetProperty("lon", out var b)
+        && double.TryParse(a.GetString(), NumberStyles.Float, Inv, out var la) && double.TryParse(b.GetString(), NumberStyles.Float, Inv, out var lo)
+            ? (la, lo) : null;
+
+    static string? Str(JsonElement e, params string[] path)
+    {
+        foreach (var k in path) if (e.ValueKind != JsonValueKind.Object || !e.TryGetProperty(k, out e)) return null;
+        return e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+    }
+
+    /// Ev adresi. place_rank 30 = bina/adres noktası; daha kaba sonuç (sokak, mahalle) kabul edilmez.
+    public async Task<(double Lat, double Lng)?> NominatimAsync(string street, string city, string state, string zip, CancellationToken ct)
+    {
+        var r = await NominatimFirstAsync($"{street}, {city}, {state}",
+            x => x.TryGetProperty("place_rank", out var rank) && rank.GetInt32() >= 30 && Str(x, "address", "ISO3166-2-lvl4") == "US-" + state, ct);
+        return r is { } found ? LatLon(found) : null;
+    }
+
+    /// Hastane adı + şehir + eyalet. Yalnızca sağlık tesisi (amenity=hospital/clinic, healthcare=*, building=hospital) ve aynı
+    /// eyaletteki sonuç kabul edilir.
+    public async Task<(double Lat, double Lng)?> NominatimHospitalAsync(string name, string city, string state, CancellationToken ct)
+    {
+        var r = await NominatimFirstAsync($"{name}, {city}, {state}", x =>
+        {
+            var (cat, type) = (Str(x, "category") ?? "", Str(x, "type") ?? "");
+            bool health = cat == "healthcare" || (cat == "amenity" && type is "hospital" or "clinic") || (cat == "building" && type == "hospital");
+            return health && Str(x, "address", "ISO3166-2-lvl4") == "US-" + state;
+        }, ct);
+        return r is { } found ? LatLon(found) : null;
     }
 
     // ---------- 5. Havalimanları (OurAirports) ----------
@@ -310,7 +379,7 @@ public sealed class ExtraData : IDisposable
     const string AirportsUrl = "https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv";
     static readonly string[] AirportCols = { "ident", "iata_code", "name", "municipality", "iso_region", "type", "latitude_deg", "longitude_deg" };
 
-    /// ABD'de large/medium, tarifeli seferli havalimanları; seçili eyaletin bölgesi (US-FL gibi).
+    /// ABD'nin tamamında large/medium, tarifeli seferli havalimanları (sınır county'lerinde en yakını komşu eyalette olabilir).
     public async Task<Entry> AirportsAsync(string st, string dir, CancellationToken ct)
     {
         var e = new Entry { File = "havalimanlari.csv", Source = AirportsUrl };
@@ -327,13 +396,14 @@ public sealed class ExtraData : IDisposable
             if (line.Length == 0) continue;
             var c = StudioExport.SplitCsv(line);
             if (c.Count < head.Count) continue;
-            if (c[iCountry] == "US" && c[iRegion] == "US-" + st && c[iType] is "large_airport" or "medium_airport" && c[iSched] == "yes")
+            if (c[iCountry] == "US" && c[iType] is "large_airport" or "medium_airport" && c[iSched] == "yes")
                 rows.Add(AirportCols.Select(n => (string?)c[Col(n)]).ToList());
         }
-        WriteCsv(Path.Combine(dir, e.File), AirportCols, rows.OrderBy(r => r[0], StringComparer.Ordinal));
+        // sıra: eyalet (iso_region), sonra kod
+        WriteCsv(Path.Combine(dir, e.File), AirportCols, rows.OrderBy(r => r[4], StringComparer.Ordinal).ThenBy(r => r[0], StringComparer.Ordinal));
         e.Rows = rows.Count;
         e.Period = "güncel (OurAirports her gün güncellenir)";
-        e.Details["süzgeç"] = $"iso_country=US, iso_region=US-{st}, type=large_airport|medium_airport, scheduled_service=yes";
+        e.Details["süzgeç"] = "iso_country=US, type=large_airport|medium_airport, scheduled_service=yes (bütün eyaletler)";
         _log($"havalimanları: {rows.Count} satır");
         return e;
     }
@@ -344,6 +414,26 @@ public sealed class ExtraData : IDisposable
     const string FemaMirror = "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Flood_Hazard_Reduced_Set_gdb/FeatureServer";
     string? _femaLayer;
     string _femaSource = "";
+    string? _femaLayerStatement;     // katmanın kendi açıklamasından kapsam cümleleri (İngilizce, olduğu gibi)
+
+    public const string FemaFound = "bölge bulundu";
+    public const string FemaNoZone = "sorgu başarılı, bölge bulunamadı";
+    public const string FemaFailed = "sorgu başarısız";
+
+    /// Servis açıklamasındaki (HTML) kapsam cümleleri: hangi FEMA sürümünden türetildiği, yayın tarihi ve hangi bölgelerin
+    /// çıkarıldığı. Yorum eklenmez; cümleler olduğu gibi aktarılır.
+    static string? LayerStatement(string? descriptionHtml)
+    {
+        if (string.IsNullOrWhiteSpace(descriptionHtml)) return null;
+        var text = RedfinDetailsReader.PageText(descriptionHtml.Replace("</div>", ". ").Replace("<br", ". <br"));
+        var sentences = System.Text.RegularExpressions.Regex.Split(text, @"(?<=[.])\s+")
+            .Select(s => s.Trim(' ', '.')).Where(s => s.Length > 0)
+            .Where(s => s.Contains("Publication Date", StringComparison.OrdinalIgnoreCase)
+                        || s.Contains("derived from", StringComparison.OrdinalIgnoreCase)
+                        || s.Contains("removed", StringComparison.OrdinalIgnoreCase))
+            .Distinct().ToList();
+        return sentences.Count > 0 ? string.Join(". ", sentences) + "." : null;
+    }
 
     /// "Flood Hazard Zones" katmanı servisin katman listesinden adıyla bulunur. FEMA'nın servisine bağlanılamazsa
     /// (bu bilgisayardan hazards.fema.gov TLS el sıkışmasında kesiliyor) Esri Living Atlas'taki FEMA NFHL kopyasına düşülür;
@@ -364,6 +454,13 @@ public sealed class ExtraData : IDisposable
                     {
                         _femaLayer = $"{FemaService}/{l.GetProperty("id").GetInt32()}";
                         _femaSource = $"FEMA NFHL ({_femaLayer})";
+                        try
+                        {
+                            var (lc, lb) = await GetAsync(_femaLayer + "?f=json", cts.Token);
+                            using var ld = JsonDocument.Parse(lb);
+                            _femaLayerStatement = lc == 200 && ld.RootElement.TryGetProperty("description", out var dsc) ? LayerStatement(dsc.GetString()) : null;
+                        }
+                        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException) { }
                         return _femaLayer;
                     }
                 warnings.Add("FEMA servisinde \"Flood Hazard Zones\" katmanı bulunamadı.");
@@ -382,7 +479,15 @@ public sealed class ExtraData : IDisposable
             var date = doc.RootElement.TryGetProperty("editingInfo", out var ei) && ei.TryGetProperty("dataLastEditDate", out var dl) && dl.ValueKind == JsonValueKind.Number
                 ? DateTimeOffset.FromUnixTimeMilliseconds(dl.GetInt64()).UtcDateTime.ToString("yyyy-MM-dd", Inv) : "?";
             _femaLayer = FemaMirror + "/0";
-            _femaSource = $"Esri Living Atlas, USA Flood Hazard Reduced Set — FEMA NFHL kopyası, veri tarihi {date} ({_femaLayer})";
+            _femaSource = $"Esri Living Atlas, USA Flood Hazard Reduced Set — FEMA NFHL'den türetilmiş kopya, katmanın son düzenleme tarihi {date} ({_femaLayer})";
+            // kapsam cümleleri servisin açıklamasında (katmanın kendi açıklaması boş)
+            try
+            {
+                var (sc, sb) = await GetAsync(FemaMirror + "?f=json", ct);
+                using var sd = JsonDocument.Parse(sb);
+                _femaLayerStatement = sc == 200 && sd.RootElement.TryGetProperty("description", out var dsc) ? LayerStatement(dsc.GetString()) : null;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException) { }
             return _femaLayer;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
@@ -394,28 +499,28 @@ public sealed class ExtraData : IDisposable
 
     public async Task<FemaFlood> FloodZoneAsync(double lat, double lng, List<string> warnings, CancellationToken ct)
     {
-        var f = new FemaFlood { QueriedAt = DateTime.Now };
+        var f = new FemaFlood { QueriedAt = DateTime.Now, Result = FemaFailed };
         var layer = await FemaLayerAsync(warnings, ct);
-        if (layer == null) { f.Error = "FEMA servisi yanıt vermedi"; return f; }
+        if (layer == null) { f.Error = "FEMA servisi ve kopyası yanıt vermedi"; return f; }
         f.Source = _femaSource;
         var q = $"geometry={lng.ToString(Inv)},{lat.ToString(Inv)}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects" +
                 "&outFields=FLD_ZONE,ZONE_SUBTY,SFHA_TF&returnGeometry=false&f=json";
         try
         {
             var (code, body) = await GetAsync($"{layer}/query?{q}", ct);
+            if (code != 200) { f.Error = $"HTTP {code}"; return f; }
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("error", out var err)) { f.Error = err.GetRawText(); return f; }
             var feats = doc.RootElement.GetProperty("features");
             if (feats.GetArrayLength() == 0)
             {
-                f.Note = layer.StartsWith(FemaMirror, StringComparison.Ordinal)
-                    ? "Bu noktada poligon yok. Esri kopyası (Reduced Set) yalnızca %1 ve %0,2 yıllık taşkın alanlarını ve setle korunan alanları içerir; \"Area of Minimal Flood Hazard\" (X) poligonları bu kopyada yok."
-                    : "Bu noktada NFHL poligonu yok.";
+                f.Result = FemaNoZone;
+                f.Note = _femaLayerStatement != null ? "Katmanın kendi açıklaması: " + _femaLayerStatement : null;
                 return f;
             }
             var a = feats[0].GetProperty("attributes");
             string? S(string n) => a.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-            (f.Zone, f.Subtype, f.Sfha) = (S("FLD_ZONE"), S("ZONE_SUBTY"), S("SFHA_TF"));
+            (f.Zone, f.Subtype, f.Sfha, f.Result) = (S("FLD_ZONE"), S("ZONE_SUBTY"), S("SFHA_TF"), FemaFound);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
         {
@@ -459,21 +564,30 @@ public sealed class ExtraData : IDisposable
             e.Details["koordinat_openstreetmap"] = osm.ToString(Inv);
             _log($"ev kartları: {noCoord.Count} koordinatsız aday → Census {census}, OpenStreetMap {osm}");
         }
-        // hata alan ya da poligon bulamayan sorgular her çalıştırmada yenilenir (FEMA'nın kendi servisi açılırsa oradan gelir)
-        var todo = all.Where(x => x.House.Lat != null && x.House.Lng != null && x.House.FemaZone == null).ToList();
+        // hata alan ya da bölge bulamayan sorgular her çalıştırmada yenilenir (FEMA'nın kendi servisi açılırsa oradan gelir);
+        // sonuç alanı (FemaResult) olmayan eski kayıtlar da
+        var todo = all.Where(x => x.House.Lat != null && x.House.Lng != null && (x.House.FemaZone == null || x.House.FemaResult == null)).ToList();
         int n = 0;
         foreach (var (card, h) in todo)
         {
             status.Report($"Ev kartları: FEMA sel bölgesi {++n}/{todo.Count}");
             var f = await FloodZoneAsync(h.Lat!.Value, h.Lng!.Value, e.Warnings, ct);
-            (h.FemaZone, h.FemaZoneSubtype, h.FemaSfha, h.FemaQueriedAt, h.FemaSource, h.FemaNote, h.FemaError) =
-                (f.Zone, f.Subtype, f.Sfha, f.QueriedAt, f.Source, f.Note, f.Error);
-            if (f.Error != null) e.Warnings.Add($"{card.County}: {h.Street} FEMA sorgusu: {f.Error}");
+            (h.FemaResult, h.FemaZone, h.FemaZoneSubtype, h.FemaSfha, h.FemaQueriedAt, h.FemaSource, h.FemaNote, h.FemaError) =
+                (f.Result, f.Zone, f.Subtype, f.Sfha, f.QueriedAt, f.Source, f.Note, f.Error);
+            if (f.Error != null) e.Warnings.Add($"{card.County}: {h.Street} FEMA sorgusu başarısız: {f.Error}");
         }
         e.Warnings = e.Warnings.Distinct().ToList();
         e.Rows = all.Count;
         e.Details["fema_sorgusu"] = todo.Count.ToString(Inv);
         if (_femaSource.Length > 0) e.Details["fema_kaynağı"] = _femaSource;
+        if (_femaLayerStatement != null) e.Details["fema_katmanının_açıklaması"] = _femaLayerStatement;
+        // seçili evlerin FEMA sonucu, üç durum ayrı: bölge bulundu / sorgu başarılı, bölge bulunamadı / sorgu başarısız
+        foreach (var c in cards.Where(c => c.Chosen?.FemaResult != null))
+        {
+            var h = c.Chosen!;
+            e.Details[$"fema: {c.County} ({h.Street})"] = h.FemaResult == FemaFound ? $"{FemaFound}: {h.FemaZone}"
+                : h.FemaResult == FemaFailed ? $"{FemaFailed}: {h.FemaError}" : h.FemaResult!;
+        }
         _log($"ev kartları: {all.Count} aday, {todo.Count} FEMA sorgusu");
         return e;
     }
@@ -524,6 +638,9 @@ public sealed class ExtraData : IDisposable
             F("Adres", $"{h.Street}, {h.City}, {h.State} {h.Zip}".Trim());
             F("İlan", h.Url);
             F("Mod", card.Mode);
+            F("İlan durumu (Redfin)", h.ListingStatus ?? (h.ListingStatusAt != null ? "okunamadı" : null));
+            F("Durumun okunduğu zaman", h.ListingStatusAt?.ToString("yyyy-MM-dd HH:mm", Inv));
+            if (h.ListingStatusNote != null) F("Durum okunamama sebebi", h.ListingStatusNote);
             F("Kart metni", card.CardText);
             F("İlan tarihi", h.ListedDate?.ToString("yyyy-MM-dd", Inv));
             F("İlk fiyat ($)", h.OriginalPrice);
@@ -542,12 +659,13 @@ public sealed class ExtraData : IDisposable
                 foreach (var s in h.PriceSteps) sb.Append($"  - {s.Date:yyyy-MM-dd}: {s.Price} $\n");
             }
             sb.Append("\n### FEMA sel bölgesi\n\n");
+            F("Sonuç", h.FemaResult);
             F("FLD_ZONE", h.FemaZone);
             F("ZONE_SUBTY", h.FemaZoneSubtype);
             F("SFHA_TF", h.FemaSfha);
             F("Kaynak", h.FemaSource);
             F("Sorgu zamanı", h.FemaQueriedAt?.ToString("yyyy-MM-dd HH:mm", Inv));
-            if (h.FemaNote != null) F("Not", h.FemaNote);
+            if (h.FemaNote != null) F("Kaynak katmanın kapsamı", h.FemaNote);
             if (h.FemaError != null) F("Sorgu hatası", h.FemaError);
             sb.Append("\n### Redfin ilan sayfası (ham)\n\n");
             var r = h.Redfin;
@@ -559,12 +677,14 @@ public sealed class ExtraData : IDisposable
             F("Okunma zamanı", r.ReadAt.ToString("yyyy-MM-dd HH:mm", Inv));
             F("Yıllık emlak vergisi", r.PropertyTax);
             F("Vergi yılı", r.PropertyTaxYear);
-            F("Aidat (HOA)", r.Hoa);
-            F("Aidat dönemi", r.HoaPeriod);
-            F("FEMA bölgesi (Redfin'in gösterdiği)", r.FloodZone);
-            F("Sel sigortası (Redfin tahmini)", r.FloodInsuranceEstimate);
-            foreach (var kind in new[] { "flood", "fire", "heat", "wind" })
-                F($"İklim riski: {kind} (Redfin)", r.ClimateRisk.GetValueOrDefault(kind));
+            F("Aidat (HOA, MLS)", r.Hoa);
+            F("Aidat dönemi (MLS)", r.HoaPeriod);
+            F("Aylık aidat (Redfin ödeme hesaplayıcısı)", r.HoaMonthlyRedfin);
+            F("Aidat bilgileri (MLS, olduğu gibi)", r.HoaAmenities);
+            F("FEMA bölgesi (Redfin'in gösterdiği, tahmini)", r.FloodZone);
+            F("Sel sigortası (Redfin tahmini, yıllık $)", r.FloodInsuranceEstimate);
+            foreach (var kind in new[] { "flood", "fire", "heat", "wind", "air" })
+                F($"İklim riski: {kind} (First Street, 1-10)", r.ClimateRisk.GetValueOrDefault(kind));
             F("İlanı veren emlakçı", r.AgentName);
             F("Ofis", r.OfficeName);
             F("Açıklama", r.Description);
