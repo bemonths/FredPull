@@ -398,7 +398,10 @@ public partial class MainForm : Form
                     e.Warnings.Add($"{card.County}: {h.Street} ilan sayfası açılamadı ({ex.Message.Split('\n')[0]}); ev atlandı.");
                 }
                 // ilan durumu manifest'te de görünsün (okunamadıysa sebebiyle)
-                e.Details[$"durum: {card.County} ({h.Street})"] = h.ListingStatus ?? "okunamadı — " + h.ListingStatusNote;
+                e.Details[$"durum: {card.County} ({h.Street})"] = (h.ListingStatus ?? "okunamadı — " + h.ListingStatusNote)
+                    + (h.ListingStatus != null && h.Redfin?.LastEvent is { } le ? $"; son olay {le}" : "")
+                    + (ExtraData.IsSoldOrPending(h.ListingStatus) && h.Redfin is { } rd
+                        ? $"; soldDate {rd.SoldDate ?? "—"}; {rd.PriceLabel ?? "fiyat"} {rd.PriceAmount ?? "—"}" : "");
             }
         }
         finally

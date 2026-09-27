@@ -410,11 +410,19 @@ public sealed class ExtraData : IDisposable
 
     // ---------- 8. FEMA sel bölgesi ----------
 
-    const string FemaService = "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer";
+    // resmî NFHL servisinin iki adresi; sırayla denenir
+    static readonly string[] FemaServices =
+    {
+        "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer",
+        "https://hazards.fema.gov/gis/nfhl/rest/services/public/NFHL/MapServer",
+    };
     const string FemaMirror = "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Flood_Hazard_Reduced_Set_gdb/FeatureServer";
     string? _femaLayer;
+    bool _femaOfficial;
     string _femaSource = "";
     string? _femaLayerStatement;     // katmanın kendi açıklamasından kapsam cümleleri (İngilizce, olduğu gibi)
+    string? _femaMirrorVersion;      // kopyanın sürümü, katmanın kendi ifadesinden
+    string? _femaDiagnosis;          // resmî sunucuya bağlanılamadıysa teşhis özeti
 
     public const string FemaFound = "bölge bulundu";
     public const string FemaNoZone = "sorgu başarılı, bölge bulunamadı";
@@ -435,25 +443,40 @@ public sealed class ExtraData : IDisposable
         return sentences.Count > 0 ? string.Join(". ", sentences) + "." : null;
     }
 
-    /// "Flood Hazard Zones" katmanı servisin katman listesinden adıyla bulunur. FEMA'nın servisine bağlanılamazsa
-    /// (bu bilgisayardan hazards.fema.gov TLS el sıkışmasında kesiliyor) Esri Living Atlas'taki FEMA NFHL kopyasına düşülür;
-    /// hangisinin kullanıldığı her evin kaydına (Fema.Source) yazılır.
+    static readonly System.Text.RegularExpressions.Regex DerivedFrom =
+        new(@"derived from the (\w+ \d{1,2}, \d{4}) version of the National Flood Hazard Layer[^.]*", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// Kopyanın sürümü katmanın kendi cümlesinden: "FEMA NFHL'in 5 Ekim 2022 sürümünden türetilmiş (katmanın açıklaması: "...")".
+    static string? MirrorVersion(string? statement)
+    {
+        if (statement == null || DerivedFrom.Match(statement) is not { Success: true } m) return null;
+        var tr = DateTime.TryParseExact(m.Groups[1].Value, "MMMM d, yyyy", CultureInfo.GetCultureInfo("en-US"), DateTimeStyles.None, out var dt)
+            ? $"{dt.Day} {Analyzer.MonthNames[dt.Month - 1]} {dt.Year}" : m.Groups[1].Value;
+        return $"FEMA NFHL'in {tr} sürümünden türetilmiş (katmanın kendi açıklaması: \"This layer is {m.Value}.\")";
+    }
+
+    /// "Flood Hazard Zones" katmanı servisin katman listesinden adıyla bulunur; resmî servisin iki adresi sırayla denenir.
+    /// İkisi de olmazsa bağlantı teşhisi (FemaDiagnostics) bir kez çalışıp günlüğe yazılır ve Esri Living Atlas'taki FEMA NFHL
+    /// kopyasına düşülür; hangisinin kullanıldığı ve verinin sürümü her evin kaydına yazılır.
     async Task<string?> FemaLayerAsync(List<string> warnings, CancellationToken ct)
     {
         if (_femaLayer != null) return _femaLayer;
-        try
+        var errors = new List<string>();
+        foreach (var service in FemaServices)
         {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(TimeSpan.FromSeconds(40));
-            var (code, body) = await GetAsync(FemaService + "?f=json", cts.Token);
-            if (code == 200)
+            try
             {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(30));
+                var (code, body) = await GetAsync(service + "?f=json", cts.Token);
+                if (code != 200) { errors.Add($"{service}: HTTP {code}"); continue; }
                 using var doc = JsonDocument.Parse(body);
                 foreach (var l in doc.RootElement.GetProperty("layers").EnumerateArray())
                     if (string.Equals(l.GetProperty("name").GetString(), "Flood Hazard Zones", StringComparison.OrdinalIgnoreCase))
                     {
-                        _femaLayer = $"{FemaService}/{l.GetProperty("id").GetInt32()}";
-                        _femaSource = $"FEMA NFHL ({_femaLayer})";
+                        _femaLayer = $"{service}/{l.GetProperty("id").GetInt32()}";
+                        _femaOfficial = true;
+                        _femaSource = $"FEMA NFHL, resmî servis ({_femaLayer})";
                         try
                         {
                             var (lc, lb) = await GetAsync(_femaLayer + "?f=json", cts.Token);
@@ -461,16 +484,31 @@ public sealed class ExtraData : IDisposable
                             _femaLayerStatement = lc == 200 && ld.RootElement.TryGetProperty("description", out var dsc) ? LayerStatement(dsc.GetString()) : null;
                         }
                         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException) { }
+                        _log($"FEMA: resmî servis kullanılıyor — {_femaLayer}");
                         return _femaLayer;
                     }
-                warnings.Add("FEMA servisinde \"Flood Hazard Zones\" katmanı bulunamadı.");
+                errors.Add($"{service}: \"Flood Hazard Zones\" katmanı yok");
             }
-            else warnings.Add($"FEMA servisi HTTP {code} döndürdü.");
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
+            {
+                errors.Add($"{service}: {ex.Message.Split('\n')[0]}{(ex.InnerException != null ? " → " + ex.InnerException.Message.Split('\n')[0] : "")}");
+            }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
+        foreach (var err in errors) _log("FEMA resmî servis: " + err);
+
+        // teşhis: aynı makineden farklı yollarla (günlüğe)
+        try
         {
-            warnings.Add($"FEMA servisine bağlanılamadı ({ex.Message.Split('\n')[0]}); Esri Living Atlas'taki FEMA NFHL kopyası kullanıldı.");
+            _log("FEMA bağlantı teşhisi başlıyor");
+            var diag = await FemaDiagnostics.RunAsync(FemaServices.Select(s => s + "?f=json").ToList(), ct);
+            foreach (var line in diag.Lines) _log("FEMA teşhis: " + line);
+            _log("FEMA teşhis sonucu: " + diag.Summary);
+            _femaDiagnosis = diag.Summary;
         }
+        catch (Exception ex) when (ex is not OperationCanceledException) { _log("FEMA teşhisi yapılamadı: " + ex.Message); }
+        warnings.Add($"FEMA'nın resmî servisine bağlanılamadı ({errors.FirstOrDefault()}); Esri Living Atlas'taki FEMA NFHL kopyası kullanıldı." +
+                     (_femaDiagnosis != null ? " Teşhis: " + _femaDiagnosis : ""));
+
         try
         {
             var (code, body) = await GetAsync(FemaMirror + "/0?f=json", ct);
@@ -488,6 +526,8 @@ public sealed class ExtraData : IDisposable
                 _femaLayerStatement = sc == 200 && sd.RootElement.TryGetProperty("description", out var dsc) ? LayerStatement(dsc.GetString()) : null;
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException) { }
+            _femaMirrorVersion = MirrorVersion(_femaLayerStatement)
+                                 ?? "kopyanın sürümü katmanın açıklamasından okunamadı" + (_femaLayerStatement != null ? $" (açıklama: \"{_femaLayerStatement}\")" : "");
             return _femaLayer;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
@@ -503,6 +543,7 @@ public sealed class ExtraData : IDisposable
         var layer = await FemaLayerAsync(warnings, ct);
         if (layer == null) { f.Error = "FEMA servisi ve kopyası yanıt vermedi"; return f; }
         f.Source = _femaSource;
+        f.Version = _femaOfficial ? $"FEMA NFHL resmî servisi, sorgu tarihi {f.QueriedAt:yyyy-MM-dd}" : _femaMirrorVersion;
         var q = $"geometry={lng.ToString(Inv)},{lat.ToString(Inv)}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects" +
                 "&outFields=FLD_ZONE,ZONE_SUBTY,SFHA_TF&returnGeometry=false&f=json";
         try
@@ -566,20 +607,26 @@ public sealed class ExtraData : IDisposable
         }
         // hata alan ya da bölge bulamayan sorgular her çalıştırmada yenilenir (FEMA'nın kendi servisi açılırsa oradan gelir);
         // sonuç alanı (FemaResult) olmayan eski kayıtlar da
-        var todo = all.Where(x => x.House.Lat != null && x.House.Lng != null && (x.House.FemaZone == null || x.House.FemaResult == null)).ToList();
+        // resmî servis açıksa kopyadan gelmiş sonuçlar da yenilenir (kopya FEMA'nın eski bir sürümü); sürümü yazılmamış eski kayıtlar da
+        if (all.Any(x => x.House.Lat != null)) await FemaLayerAsync(e.Warnings, ct);
+        var todo = all.Where(x => x.House.Lat != null && x.House.Lng != null
+                                  && (x.House.FemaZone == null || x.House.FemaResult == null || x.House.FemaVersion == null
+                                      || (_femaOfficial && x.House.FemaSource?.StartsWith("FEMA NFHL, resmî", StringComparison.Ordinal) != true))).ToList();
         int n = 0;
         foreach (var (card, h) in todo)
         {
             status.Report($"Ev kartları: FEMA sel bölgesi {++n}/{todo.Count}");
             var f = await FloodZoneAsync(h.Lat!.Value, h.Lng!.Value, e.Warnings, ct);
-            (h.FemaResult, h.FemaZone, h.FemaZoneSubtype, h.FemaSfha, h.FemaQueriedAt, h.FemaSource, h.FemaNote, h.FemaError) =
-                (f.Result, f.Zone, f.Subtype, f.Sfha, f.QueriedAt, f.Source, f.Note, f.Error);
+            (h.FemaResult, h.FemaZone, h.FemaZoneSubtype, h.FemaSfha, h.FemaQueriedAt, h.FemaSource, h.FemaVersion, h.FemaNote, h.FemaError) =
+                (f.Result, f.Zone, f.Subtype, f.Sfha, f.QueriedAt, f.Source, f.Version, f.Note, f.Error);
             if (f.Error != null) e.Warnings.Add($"{card.County}: {h.Street} FEMA sorgusu başarısız: {f.Error}");
         }
         e.Warnings = e.Warnings.Distinct().ToList();
         e.Rows = all.Count;
         e.Details["fema_sorgusu"] = todo.Count.ToString(Inv);
         if (_femaSource.Length > 0) e.Details["fema_kaynağı"] = _femaSource;
+        e.Details["fema_sürümü"] = _femaOfficial ? $"FEMA NFHL resmî servisi, sorgu tarihi {DateTime.Now:yyyy-MM-dd}" : _femaMirrorVersion ?? "—";
+        if (_femaDiagnosis != null) e.Details["fema_bağlantı_teşhisi"] = _femaDiagnosis;
         if (_femaLayerStatement != null) e.Details["fema_katmanının_açıklaması"] = _femaLayerStatement;
         // seçili evlerin FEMA sonucu, üç durum ayrı: bölge bulundu / sorgu başarılı, bölge bulunamadı / sorgu başarısız
         foreach (var c in cards.Where(c => c.Chosen?.FemaResult != null))
@@ -626,6 +673,10 @@ public sealed class ExtraData : IDisposable
     // ---------- 9. Okunabilir ev detayı dosyası ----------
 
     /// out\ev_detaylari_{ST}.md: seçili her ev için alan adı ve değer; yorum cümlesi yok.
+    /// Redfin durum metni satış ya da sözleşme gösteriyor mu (Sold, Pending, Contingent, Under Contract).
+    public static bool IsSoldOrPending(string? status) =>
+        status != null && new[] { "Sold", "Pending", "Contingent", "Under Contract" }.Any(s => status.Contains(s, StringComparison.OrdinalIgnoreCase));
+
     public static void WriteHouseDetails(string path, string st, IEnumerable<HouseCard> cards)
     {
         var sb = new StringBuilder($"# Ev detayları — {st}\n\nYazıldı: {DateTime.Now:yyyy-MM-dd HH:mm}. {Principle}\n");
@@ -641,6 +692,18 @@ public sealed class ExtraData : IDisposable
             F("İlan durumu (Redfin)", h.ListingStatus ?? (h.ListingStatusAt != null ? "okunamadı" : null));
             F("Durumun okunduğu zaman", h.ListingStatusAt?.ToString("yyyy-MM-dd HH:mm", Inv));
             if (h.ListingStatusNote != null) F("Durum okunamama sebebi", h.ListingStatusNote);
+            if (h.Redfin is { } rs)
+            {
+                F("Fiyat geçmişindeki son olay (Redfin)", rs.LastEvent?.ToString());
+                // satılmış / sözleşmeli görünen evde sayfadaki satış ve sözleşme değerleri, yazıldığı gibi
+                if (IsSoldOrPending(h.ListingStatus ?? rs.ListingStatus))
+                {
+                    F("Satış tarihi (Redfin soldDate)", rs.SoldDate);
+                    F($"Sayfadaki fiyat ({rs.PriceLabel ?? "etiket yok"}, $)", rs.PriceAmount);
+                    F("Son satış olayı (fiyat geçmişi)", rs.LastSaleEvent?.ToString());
+                    F("Son sözleşme olayı (fiyat geçmişi)", rs.LastContractEvent?.ToString());
+                }
+            }
             F("Kart metni", card.CardText);
             F("İlan tarihi", h.ListedDate?.ToString("yyyy-MM-dd", Inv));
             F("İlk fiyat ($)", h.OriginalPrice);
@@ -664,6 +727,7 @@ public sealed class ExtraData : IDisposable
             F("ZONE_SUBTY", h.FemaZoneSubtype);
             F("SFHA_TF", h.FemaSfha);
             F("Kaynak", h.FemaSource);
+            F("Verinin sürümü", h.FemaVersion);
             F("Sorgu zamanı", h.FemaQueriedAt?.ToString("yyyy-MM-dd HH:mm", Inv));
             if (h.FemaNote != null) F("Kaynak katmanın kapsamı", h.FemaNote);
             if (h.FemaError != null) F("Sorgu hatası", h.FemaError);

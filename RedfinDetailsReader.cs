@@ -41,6 +41,7 @@ public static class RedfinDetailsReader
                     AddressSection(p, d);
                     MainHouse(p, d);
                     PublicRecords(p, d);
+                    History(p, d);
                     Amenities(p, d);
                     RiskFactor(p, d);
                 }
@@ -76,9 +77,48 @@ public static class RedfinDetailsReader
         d.Found[field] = path;
     }
 
-    static void AddressSection(JsonElement p, RedfinDetails d) =>
-        Set(d, "ListingStatus", Scalar(Get(p, "addressSectionInfo", "status", "displayValue")),
+    static string? UtcDay(JsonElement? ms) =>
+        ms is { ValueKind: JsonValueKind.Number } v && v.TryGetInt64(out var t)
+            ? DateTimeOffset.FromUnixTimeMilliseconds(t).UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) : null;
+
+    static void AddressSection(JsonElement p, RedfinDetails d)
+    {
+        if (Get(p, "addressSectionInfo") is not { ValueKind: JsonValueKind.Object } a) return;
+        Set(d, "ListingStatus", Scalar(Get(a, "status", "displayValue")),
             "payload.addressSectionInfo.status.displayValue", () => d.ListingStatus, x => d.ListingStatus = x);
+        Set(d, "SoldDate", UtcDay(Get(a, "soldDate")), "payload.addressSectionInfo.soldDate", () => d.SoldDate, x => d.SoldDate = x);
+        Set(d, "PriceLabel", Scalar(Get(a, "latestPriceInfo", "label")), "payload.addressSectionInfo.latestPriceInfo.label", () => d.PriceLabel, x => d.PriceLabel = x);
+        Set(d, "PriceAmount", Scalar(Get(a, "latestPriceInfo", "amount")), "payload.addressSectionInfo.latestPriceInfo.amount", () => d.PriceAmount, x => d.PriceAmount = x);
+    }
+
+    /// payload.propertyHistoryInfo.events: en yeni olay, en yeni satış ("Sold ...") ve en yeni sözleşme ("Pending",
+    /// "Contingent", "Under Contract") olayı, yazıldığı gibi. Aday seçimindeki fiyat geçmişi hesabına dokunmaz.
+    static void History(JsonElement p, RedfinDetails d)
+    {
+        if (d.LastEvent != null || Get(p, "propertyHistoryInfo", "events") is not { ValueKind: JsonValueKind.Array } events) return;
+        var list = new List<(long T, RawHistoryEvent E)>();
+        foreach (var e in events.EnumerateArray())
+        {
+            if (Get(e, "eventDate") is not { ValueKind: JsonValueKind.Number } t || !t.TryGetInt64(out var ms)) continue;
+            list.Add((ms, new RawHistoryEvent
+            {
+                Date = UtcDay(t)!, Description = Scalar(Get(e, "eventDescription")) ?? "",
+                Price = Scalar(Get(e, "price")), Source = Scalar(Get(e, "source")),
+            }));
+        }
+        if (list.Count == 0) return;
+        const string path = "payload.propertyHistoryInfo.events";
+        RawHistoryEvent? Newest(Func<RawHistoryEvent, bool> f) =>
+            list.Where(x => f(x.E)).OrderByDescending(x => x.T).Select(x => x.E).FirstOrDefault();   // eşitlikte dizideki ilk (Redfin sırası)
+        d.LastEvent = Newest(_ => true);
+        d.Found["LastEvent"] = path;
+        if ((d.LastSaleEvent = Newest(x => x.Description.StartsWith("Sold", StringComparison.OrdinalIgnoreCase))) != null)
+            d.Found["LastSaleEvent"] = path;
+        if ((d.LastContractEvent = Newest(x => x.Description.Contains("Pending", StringComparison.OrdinalIgnoreCase)
+                                              || x.Description.Contains("Contingent", StringComparison.OrdinalIgnoreCase)
+                                              || x.Description.Contains("Under Contract", StringComparison.OrdinalIgnoreCase))) != null)
+            d.Found["LastContractEvent"] = path;
+    }
 
     static void MainHouse(JsonElement p, RedfinDetails d)
     {

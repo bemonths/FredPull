@@ -111,6 +111,7 @@ public class HouseCandidate
     public string? FemaSfha { get; set; }                     // SFHA_TF ("T" / "F")
     public DateTime? FemaQueriedAt { get; set; }
     public string? FemaSource { get; set; }                   // sorgulanan servis (FEMA'nın kendisi ya da Esri kopyası) ve veri tarihi
+    public string? FemaVersion { get; set; }                  // verinin sürümü: resmî serviste sorgu tarihi, kopyada katmanın kendi ifadesi
     public string? FemaNote { get; set; }                     // sorgu başarılı, noktada poligon yok: kaynağın kapsamı
     public string? FemaError { get; set; }                    // servis hatası
 
@@ -135,7 +136,23 @@ public class RedfinDetails
     public Dictionary<string, string> ClimateRisk { get; set; } = new();   // flood / fire / heat / wind / air → First Street puanı (1-10)
     public string? AgentName { get; set; }
     public string? OfficeName { get; set; }
+    public string? SoldDate { get; set; }                     // addressSectionInfo.soldDate (yyyy-MM-dd, UTC günü)
+    public string? PriceLabel { get; set; }                   // sayfanın ana fiyatının etiketi ("Price", "Last Sold Price"...)
+    public string? PriceAmount { get; set; }                  // o fiyat
+    public RawHistoryEvent? LastEvent { get; set; }           // fiyat geçmişindeki en yeni olay (ne olursa olsun)
+    public RawHistoryEvent? LastSaleEvent { get; set; }       // en yeni "Sold ..." olayı
+    public RawHistoryEvent? LastContractEvent { get; set; }   // en yeni "Pending" / "Contingent" / "Under Contract" olayı
     public Dictionary<string, string> Found { get; set; } = new();
+}
+
+/// Redfin fiyat geçmişindeki bir olay, yazıldığı gibi.
+public class RawHistoryEvent
+{
+    public string Date { get; set; } = "";                    // yyyy-MM-dd (UTC günü; Redfin gece yarısı ABD saatiyle yazıyor)
+    public string Description { get; set; } = "";
+    public string? Price { get; set; }
+    public string? Source { get; set; }                       // MLS adı ya da "Public Records"
+    public override string ToString() => $"{Date} {Description}{(Price != null ? $" {Price} $" : "")}{(Source != null ? $" ({Source})" : "")}";
 }
 
 /// FEMA National Flood Hazard Layer nokta sorgusunun sonucu (FLD_ZONE, ZONE_SUBTY, SFHA_TF). Source: kullanılan servis.
@@ -150,6 +167,8 @@ public class FemaFlood
     public string? Error { get; set; }
     /// ExtraData.FemaFound / FemaNoZone / FemaFailed.
     public string? Result { get; set; }
+    /// Verinin sürümü (resmî servis: sorgu tarihi; kopya: katmanın açıklamasındaki sürüm).
+    public string? Version { get; set; }
     /// Bölge bulunamadıysa katmanın kendi açıklamasındaki kapsam cümleleri (Zone boş kalır).
     public string? Note { get; set; }
 }
